@@ -239,6 +239,16 @@
   .modal-text .mirror{font-weight:800;color:var(--nb-purple);border-bottom:2px dashed rgba(156,89,209,.4);padding:2px 4px}
   .modal-hint{font-size:.8rem;font-weight:600;font-style:italic;color:#6b6285;text-align:center;margin:4px 0 18px}
 
+  /* blank ruled space for a real ink signature, ~4-5 lines tall */
+  .sig-row{display:flex;flex-wrap:wrap;gap:16px;margin:18px 0}
+  .sig-box{
+    flex:1;min-width:140px;min-height:112px;
+    border:2px dashed rgba(43,35,64,.3);border-radius:10px;
+    display:flex;align-items:flex-end;justify-content:center;padding:6px;
+  }
+  .sig-box.single{max-width:260px}
+  .sig-cap{font-size:.72rem;font-weight:800;letter-spacing:.4px;color:#6b6285;text-transform:uppercase}
+
   /* ============ DVLA LETTER MODAL (printable) ============ */
   .letter-paper{font-size:.92rem;line-height:1.8;font-weight:600;color:#3c3454;text-align:left}
   .letter-paper p{margin-bottom:14px}
@@ -246,21 +256,23 @@
   .letter-block div{display:block}
   .letter-block.right{margin-left:auto;text-align:right;width:fit-content}
   .letter-sig{margin-top:26px}
-  .modal-actions{display:flex;justify-content:center;margin-top:6px}
+  .modal-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:6px}
   .modal-actions .complete-btn{width:auto;padding:12px 26px}
 
+  /* ============ PRINT: whichever modal is open, print it alone on A4 ============ */
   @media print{
-    body > *{display:none !important}
-    #dvlaModalOverlay{
+    body > *:not(.modal-overlay){display:none !important}
+    .modal-overlay{display:none !important}
+    .modal-overlay:not([hidden]){
       display:block !important;position:static !important;background:none !important;
       backdrop-filter:none !important;padding:0 !important;
     }
-    #dvlaModalOverlay .no-print{display:none !important}
-    #dvlaModalBox{
+    .modal-overlay:not([hidden]) .no-print{display:none !important}
+    .modal-overlay:not([hidden]) .modal-box{
       position:static;width:100%;max-width:none;max-height:none;overflow:visible;
       box-shadow:none;border:none;margin:0;padding:0;border-radius:0;animation:none;
     }
-    .letter-paper input.blank{border:none !important;background:none !important;padding:0 2px !important}
+    .letter-paper input.blank,.modal-text input.blank{border:none !important;background:none !important;padding:0 2px !important}
   }
   @page{size:A4;margin:20mm}
 
@@ -318,19 +330,28 @@
 </footer>
 
 <div class="modal-overlay" id="modalOverlay" hidden>
-  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
-    <h2 id="modalTitle">📜 Your Deed Poll Wording</h2>
+  <div class="modal-box" id="modalBox" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button class="modal-close no-print" id="modalClose" aria-label="Close">✕</button>
+    <h2 id="modalTitle" class="no-print">📜 Your Deed Poll Wording</h2>
     <div class="modal-text" id="modalText">
       <p>“I <input type="text" class="blank" data-field="oldName" placeholder="old name" size="14"> of <input type="text" class="blank" data-field="address" placeholder="your address" size="22"> have given up my name <span class="mirror" data-mirror="oldName">[old name]</span> and have adopted for all purposes the name <input type="text" class="blank" data-field="newName" placeholder="new name" size="14">.</p>
       <p>“Where applicable, I have informed the police that I have given up my name <span class="mirror" data-mirror="oldName">[old name]</span> and have adopted the name <span class="mirror" data-mirror="newName">[new name]</span> and understand that a failure to do so is a criminal offence.</p>
       <p>“I also understand that when I apply for official documents in my new name, such as a British Passport, the relevant authorities may check the history and validity of my old name <span class="mirror" data-mirror="oldName">[old name]</span> and new name <span class="mirror" data-mirror="newName">[new name]</span>. They may also check the information in any other supporting documents they have requested.</p>
       <p>“Signed as a deed on <input type="text" class="blank" data-field="date" placeholder="date" size="10"> as <span class="mirror" data-mirror="oldName">[old name]</span> and <span class="mirror" data-mirror="newName">[new name]</span> in the presence of <input type="text" class="blank" data-field="w1Name" placeholder="witness 1 name" size="14"> of <input type="text" class="blank" data-field="w1Address" placeholder="witness 1 address" size="18">, and <input type="text" class="blank" data-field="w2Name" placeholder="witness 2 name" size="14"> of <input type="text" class="blank" data-field="w2Address" placeholder="witness 2 address" size="18">.</p>
-      <p>“<input type="text" class="blank" data-field="newSig" placeholder="your new signature" size="16">, <input type="text" class="blank" data-field="oldSig" placeholder="your old signature" size="16"></p>
-      <p>“<input type="text" class="blank" data-field="w1Sig" placeholder="witness 1 signature" size="16">, <input type="text" class="blank" data-field="w2Sig" placeholder="witness 2 signature" size="16">”</p>
+      <div class="sig-row">
+        <div class="sig-box"><span class="sig-cap">New signature</span></div>
+        <div class="sig-box"><span class="sig-cap">Old signature</span></div>
+      </div>
+      <div class="sig-row">
+        <div class="sig-box"><span class="sig-cap">Witness 1 signature</span></div>
+        <div class="sig-box"><span class="sig-cap">Witness 2 signature</span></div>
+      </div>
     </div>
-    <p class="modal-hint">A helper to get your wording right — you'll still need to print it and sign it in your old and new names, in person, in front of two independent witnesses aged 18+ who sign too.</p>
-    <button class="complete-btn" id="modalCompleteBtn">Mark as Complete ✓</button>
+    <p class="modal-hint no-print">A helper to get your wording right — print it, then sign it in your old and new names, in person, in front of two independent witnesses aged 18+ who sign too.</p>
+    <div class="modal-actions no-print">
+      <button class="complete-btn" id="modalPrintBtn">🖨️ Print on A4</button>
+      <button class="complete-btn" id="modalCompleteBtn">Mark as Complete ✓</button>
+    </div>
   </div>
 </div>
 
@@ -358,7 +379,9 @@
       <p>I enclose my completed D1 application form, my current photocard driving licence, a new passport-style photograph, and <input type="text" class="blank" data-field="dvlaEnclosure" placeholder="a copy of my deed poll / statutory declaration" size="32"> confirming my change of name.</p>
       <p>I would be grateful if you could issue an updated licence and driver number reflecting these details. Please contact me at <input type="text" class="blank" data-field="dvlaContact" placeholder="phone number / email" size="20"> if you require anything further.</p>
       <p>Yours faithfully,</p>
-      <p class="letter-sig"><input type="text" class="blank" data-field="dvlaSignature" placeholder="Signature" size="20"></p>
+      <div class="sig-row letter-sig">
+        <div class="sig-box single"><span class="sig-cap">Signature</span></div>
+      </div>
       <p><input type="text" class="blank" data-field="dvlaNewName" placeholder="New name" size="20"></p>
     </div>
     <p class="modal-hint no-print">Fill in the blanks, then print — it's formatted to fit a single A4 sheet.</p>
@@ -485,8 +508,10 @@
   const modalOverlay = document.getElementById('modalOverlay');
   const modalClose = document.getElementById('modalClose');
   const modalCompleteBtn = document.getElementById('modalCompleteBtn');
+  const modalPrintBtn = document.getElementById('modalPrintBtn');
   const modalText = document.getElementById('modalText');
   let modalStepIndex = null;
+  modalPrintBtn.addEventListener('click', ()=> window.print());
 
   function openModal(i){
     modalStepIndex = i;
