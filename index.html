@@ -191,6 +191,7 @@
   .complete-btn:focus-visible{outline:3px solid var(--nb-purple);outline-offset:2px}
 
   footer{text-align:center;padding:0 20px 48px;font-size:.85rem;font-weight:600;color:#5a5175}
+  footer p{margin-top:14px}
 
   /* ============ DEED POLL FILL-IN MODAL ============ */
   .modal-overlay{
@@ -239,6 +240,30 @@
   /* plain-text stand-in for a filled input, used only while printing (see beforeprint handler) */
   .print-fill{font-weight:800}
 
+  /* ============ CHECKLIST MODAL (printable) ============ */
+  .checklist-table{width:100%;border-collapse:collapse;margin-top:6px}
+  .checklist-table th,.checklist-table td{
+    border:1px solid rgba(43,35,64,.25);padding:10px 12px;text-align:left;
+    font-size:.88rem;font-weight:600;color:#3c3454;
+  }
+  .checklist-table th{font-weight:800;color:var(--nb-purple);background:rgba(92,206,250,.1)}
+  .checklist-table td:nth-child(2),.checklist-table td:nth-child(3),
+  .checklist-table th:nth-child(2),.checklist-table th:nth-child(3){text-align:center;width:110px}
+  .checklist-table input[type="checkbox"]{width:20px;height:20px;cursor:pointer;accent-color:var(--nb-purple)}
+  .checklist-table tr.star-row td{font-weight:800}
+  .checklist-star{font-size:1.1rem;filter:grayscale(.6);transition:filter .3s,text-shadow .3s}
+  .checklist-star.lit{filter:none;text-shadow:0 0 10px #ffd76e}
+
+  /* confetti burst on full completion */
+  .confetti-piece{
+    position:fixed;top:-20px;width:10px;height:14px;z-index:999;
+    opacity:.9;border-radius:2px;pointer-events:none;
+    animation-name:confetti-fall;animation-timing-function:ease-in;animation-fill-mode:forwards;
+  }
+  @keyframes confetti-fall{
+    to{transform:translate(var(--drift,0),110vh) rotate(var(--rot,360deg));opacity:.4}
+  }
+
   /* ============ DVLA LETTER MODAL (printable) ============ */
   .letter-paper{font-size:.92rem;line-height:1.8;font-weight:600;color:#3c3454;text-align:left}
   .letter-paper p{margin-bottom:14px}
@@ -270,8 +295,20 @@
     }
     .modal-overlay:not([hidden]) .mirror{border-bottom:none !important}
     .modal-overlay:not([hidden]) .sig-box{border-color:#000 !important}
+    .modal-overlay:not([hidden]) .checklist-table th,
+    .modal-overlay:not([hidden]) .checklist-table td{border-color:transparent !important}
+    .modal-overlay:not([hidden]) .checklist-star{filter:none !important;text-shadow:none !important}
+    .modal-overlay:not([hidden]) input[type="checkbox"]{accent-color:#000 !important}
+    /* keep every printed document on a single A4 page */
+    .modal-text p,.letter-paper p{margin-bottom:8px !important;line-height:1.5 !important}
+    .sig-row{margin:10px 0 !important}
+    .sig-box{min-height:70px !important}
+    .letter-block{margin-bottom:8px !important}
+    .checklist-table{font-size:.72rem !important}
+    .checklist-table th,.checklist-table td{padding:3px 8px !important;line-height:1.2 !important}
+    .checklist-table input[type="checkbox"]{width:14px !important;height:14px !important}
   }
-  @page{size:A4;margin:20mm}
+  @page{size:A4;margin:10mm}
 
   /* ============ MOBILE / NARROW: unravel the circle ============ */
   /* Breakpoint raised to 860px — below this the circle can't guarantee
@@ -320,7 +357,8 @@
 </div>
 
 <footer>
-  Made with pride • Use Reset to clear your filled-in details • Always check GOV.UK for the latest requirements and fees, as they do change.
+  <button class="reset-btn" id="checklistBtn" type="button">🖨️ Print Checklist</button>
+  <p>Made with pride • Use Reset to clear your filled-in details • Always check GOV.UK for the latest requirements and fees, as they do change.</p>
 </footer>
 
 <div class="modal-overlay" id="modalOverlay" hidden>
@@ -440,6 +478,23 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="checklistModalOverlay" hidden>
+  <div class="modal-box" id="checklistModalBox" role="dialog" aria-modal="true" aria-labelledby="checklistModalTitle">
+    <button class="modal-close no-print" id="checklistModalClose" aria-label="Close">✕</button>
+    <h2 id="checklistModalTitle" class="no-print">✅ Your Checklist</h2>
+    <table class="checklist-table">
+      <thead>
+        <tr><th>Item</th><th>In progress</th><th>Done</th></tr>
+      </thead>
+      <tbody id="checklistBody"></tbody>
+    </table>
+    <p class="modal-hint no-print">Tick as you go — or print it blank and tick with a pen.</p>
+    <div class="modal-actions no-print">
+      <button class="complete-btn" id="checklistPrintBtn">🖨️ Print Checklist</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const steps = [
     {
@@ -507,6 +562,17 @@
         <li>They may ask to see your <b>deed poll</b>, though practice varies.</li>
       </ul>
       <span class="badge">Name only — no gender marker recorded</span>`
+    },
+    {
+      emoji:"🎓", label:"Qualifications & degrees", cls:"",
+      title:"Qualifications & Degrees",
+      html:`<p>Update your name with the awarding body for any certificates you hold.</p>
+      <ul>
+        <li>Contact your <b>university or college's registry/alumni office</b> directly with your deed poll — many will reissue a certificate or provide a name change letter for a fee.</li>
+        <li>Do the same for any <b>professional qualifications</b> (e.g. teaching, nursing, chartered bodies) via their awarding or regulatory body.</li>
+        <li>Keep your old certificate with your deed poll — some checks (e.g. HEDD) verify against the name a qualification was originally awarded under.</li>
+      </ul>
+      <span class="badge">Contact each awarding body separately</span>`
     },
     {
       emoji:"👑", label:"Gender Recognition Certificate", cls:"grc",
@@ -607,6 +673,66 @@
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !gpModalOverlay.hidden) closeGpModal(); });
   gpPrintBtn.addEventListener('click', ()=> window.print());
 
+  /* ---- printable checklist modal ---- */
+  const checklistModalOverlay = document.getElementById('checklistModalOverlay');
+  const checklistModalClose = document.getElementById('checklistModalClose');
+  const checklistPrintBtn = document.getElementById('checklistPrintBtn');
+  const checklistBody = document.getElementById('checklistBody');
+  const checklistBtn = document.getElementById('checklistBtn');
+
+  steps.forEach(s=>{
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${s.emoji} ${s.label}</td><td><input type="checkbox" class="chk"></td><td><input type="checkbox" class="chk"></td>`;
+    checklistBody.appendChild(row);
+  });
+  const starRow = document.createElement('tr');
+  starRow.className = 'star-row';
+  starRow.innerHTML = `<td><span class="checklist-star" id="checklistStar">⭐</span> Everything ticked off</td><td>—</td><td><input type="checkbox" class="chk" id="checklistStarCheck"></td>`;
+  checklistBody.appendChild(starRow);
+  document.getElementById('checklistStarCheck').addEventListener('change', (e)=>{
+    document.getElementById('checklistStar').classList.toggle('lit', e.target.checked);
+  });
+
+  /* confetti burst the moment every box on the checklist is ticked */
+  const confettiColors = ['var(--t-blue)','var(--t-pink)','var(--t-white)','var(--nb-yellow)','var(--nb-purple)'];
+  function fireConfetti(){
+    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for(let i=0;i<90;i++){
+      const piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = Math.random()*100 + 'vw';
+      piece.style.background = confettiColors[Math.floor(Math.random()*confettiColors.length)];
+      piece.style.animationDuration = (2.2 + Math.random()*1.6) + 's';
+      piece.style.animationDelay = (Math.random()*0.4) + 's';
+      piece.style.setProperty('--rot', (Math.random()*720 - 360) + 'deg');
+      piece.style.setProperty('--drift', (Math.random()*160 - 80) + 'px');
+      document.body.appendChild(piece);
+      piece.addEventListener('animationend', ()=> piece.remove());
+    }
+  }
+  let allTicked = false;
+  function checkAllTicked(){
+    const boxes = checklistBody.querySelectorAll('.chk');
+    const nowAllTicked = Array.from(boxes).every(b=> b.checked);
+    if(nowAllTicked && !allTicked) fireConfetti();
+    allTicked = nowAllTicked;
+  }
+  checklistBody.addEventListener('change', (e)=>{
+    if(e.target.classList.contains('chk')) checkAllTicked();
+  });
+
+  function openChecklistModal(){
+    checklistModalOverlay.hidden = false;
+  }
+  function closeChecklistModal(){
+    checklistModalOverlay.hidden = true;
+  }
+  checklistBtn.addEventListener('click', openChecklistModal);
+  checklistModalClose.addEventListener('click', closeChecklistModal);
+  checklistModalOverlay.addEventListener('click', (e)=>{ if(e.target === checklistModalOverlay) closeChecklistModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !checklistModalOverlay.hidden) closeChecklistModal(); });
+  checklistPrintBtn.addEventListener('click', ()=> window.print());
+
   /* blank inputs grow to fit whatever's typed, so nothing (e.g. a long address) gets cut off */
   document.querySelectorAll('input.blank').forEach(inp=>{
     const grow = ()=>{ inp.size = Math.max(inp.value.length || inp.placeholder.length, 4) + 1; };
@@ -626,6 +752,9 @@
     const deedDateInput = modalText.querySelector('input[data-field="date"]');
     deedDateInput.value = `${pad2(today.getDate())}/${pad2(today.getMonth()+1)}/${today.getFullYear()}`;
     deedDateInput.dispatchEvent(new Event('input'));
+    document.querySelectorAll('.chk').forEach(chk=> chk.checked = false);
+    document.getElementById('checklistStar').classList.remove('lit');
+    allTicked = false;
   }
   applyDefaultFieldState();
 
@@ -691,6 +820,7 @@
     closeModal();
     closeDvlaModal();
     closeGpModal();
+    closeChecklistModal();
     applyDefaultFieldState();
     buttons.forEach(b=> b.classList.remove('active'));
     currentIndex = null;
