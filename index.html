@@ -15,7 +15,6 @@
     --nb-yellow:#FCF434; --nb-purple:#9C59D1; --nb-black:#2C2C2C;
     --ink:#2b2340;
     --card:#fffdfa;
-    --done:#3bb273;
   }
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%}
@@ -92,16 +91,16 @@
      -webkit-background-clip:text;background-clip:text;color:transparent;}
   .sub{max-width:560px;margin:14px auto 0;font-size:1.05rem;font-weight:600;color:#4a4162}
 
-  .progress{
-    display:inline-flex;align-items:center;gap:10px;margin-top:16px;
+  .reset-btn{
+    display:inline-flex;align-items:center;gap:8px;margin-top:16px;
     background:rgba(255,255,255,.75);backdrop-filter:blur(6px);
-    padding:8px 18px;border-radius:999px;font-weight:800;font-size:.9rem;
+    padding:10px 22px;border-radius:999px;font-weight:800;font-size:.9rem;
     box-shadow:0 6px 16px rgba(43,35,64,.12);
+    border:none;color:var(--ink);font-family:'Nunito',sans-serif;cursor:pointer;
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
   }
-  .progress .bar{width:120px;height:10px;border-radius:999px;background:rgba(43,35,64,.12);overflow:hidden}
-  .progress .fill{height:100%;width:0%;border-radius:999px;
-    background:linear-gradient(90deg,var(--t-blue),var(--t-pink),var(--nb-yellow),var(--nb-purple));
-    transition:width .5s cubic-bezier(.34,1.56,.64,1)}
+  .reset-btn:hover,.reset-btn:focus-visible{transform:translateY(-2px);box-shadow:0 10px 22px rgba(43,35,64,.2);outline:none}
+  .reset-btn:focus-visible{outline:3px solid var(--nb-purple);outline-offset:3px}
 
   /* The ring: sized so buttons NEVER touch the centre panel.
      --ring-d = wrap diameter, --btn-w = button width, --panel-w = panel width.
@@ -137,16 +136,6 @@
     background:linear-gradient(135deg,#fff, #f0e6ff);
     box-shadow:0 14px 30px rgba(156,89,209,.35), inset 0 0 0 3px var(--nb-purple);
   }
-  /* completed tick badge on ring buttons */
-  .ring-btn .tick{
-    position:absolute;top:-10px;right:-10px;width:30px;height:30px;border-radius:50%;
-    background:var(--done);color:#fff;font-size:1rem;line-height:30px;text-align:center;
-    box-shadow:0 4px 10px rgba(59,178,115,.5);
-    transform:scale(0);transition:transform .3s cubic-bezier(.34,1.56,.64,1);
-  }
-  .ring-btn.done{box-shadow:0 8px 22px rgba(59,178,115,.3), inset 0 0 0 3px var(--done)}
-  .ring-btn.done .tick{transform:scale(1)}
-  .ring-btn.done .emoji{filter:grayscale(.2)}
 
   /* sparkly GRC button */
   .ring-btn.grc{
@@ -164,7 +153,6 @@
   .ring-btn.grc::before{top:-10px;left:-6px}
   .ring-btn.grc::after{bottom:-10px;right:-6px;animation-delay:.9s}
   @keyframes twinkle{0%,100%{opacity:.2;transform:scale(.6) rotate(0deg)}50%{opacity:1;transform:scale(1.25) rotate(25deg)}}
-  .ring-btn.grc.done{box-shadow:0 10px 26px rgba(59,178,115,.4), inset 0 0 0 3px var(--done)}
 
   /* centre info panel — capped so it can never reach the buttons */
   .panel{
@@ -200,10 +188,6 @@
   }
   .complete-btn:hover,.complete-btn:focus-visible{transform:translateY(-3px);box-shadow:0 12px 24px rgba(92,150,250,.45);outline:none}
   .complete-btn:focus-visible{outline:3px solid var(--nb-purple);outline-offset:2px}
-  .complete-btn.is-done{
-    background:linear-gradient(90deg,var(--done),#5cd695);
-    box-shadow:0 8px 18px rgba(59,178,115,.4);
-  }
 
   footer{text-align:center;padding:0 20px 48px;font-size:.85rem;font-weight:600;color:#5a5175}
 
@@ -282,14 +266,13 @@
   @media (max-width:860px){
     .ring-wrap{width:auto;height:auto;display:flex;flex-direction:column;align-items:center;gap:14px;padding:0 16px}
     .ring-btn{position:static;width:100%;max-width:400px;min-height:0}
-    .ring-btn .tick{top:-8px;right:-8px}
     .panel{position:static;transform:none;width:100%;max-width:400px;max-height:none;order:99;margin-top:6px}
     .modal-box{padding:30px 18px 22px}
   }
 
   @media (prefers-reduced-motion:reduce){
     .blob,.floaty,.ring-btn.grc,.ring-btn.grc::before,.ring-btn.grc::after{animation:none!important}
-    .ring-btn,.complete-btn,.progress .fill,.ring-btn .tick{transition:none}
+    .ring-btn,.complete-btn,.reset-btn{transition:none}
   }
 </style>
 </head>
@@ -312,21 +295,18 @@
 <header>
   <h1>Your Name-Change Journey</h1>
   <p class="sub">All the UK paperwork in one friendly circle. Tap a form to see what it needs — start with the deed poll, everything else flows from there. ✨</p>
-  <div class="progress" role="status">
-    <span id="progressText">0 / 6 complete</span>
-    <span class="bar"><span class="fill" id="progressFill"></span></span>
-  </div>
+  <button class="reset-btn" id="resetBtn" type="button">🔄 Reset all fields</button>
 </header>
 
 <div class="ring-wrap" id="ring">
   <div class="panel" id="panel" aria-live="polite">
     <h2>Pick a document to begin</h2>
-    <p>The deed poll is your key — it unlocks nearly everything else. Work clockwise, hit <b>Complete</b> as you finish each one, and watch the bar fill up. You've got this. 💙🤍💗💛🤍💜🖤</p>
+    <p>The deed poll is your key — it unlocks nearly everything else. Work clockwise, filling in the deed poll and DVLA letter as you go. You've got this. 💙🤍💗💛🤍💜🖤</p>
   </div>
 </div>
 
 <footer>
-  Made with pride • Progress resets when you close the page • Always check GOV.UK for the latest requirements and fees, as they do change.
+  Made with pride • Use Reset to clear your filled-in details • Always check GOV.UK for the latest requirements and fees, as they do change.
 </footer>
 
 <div class="modal-overlay" id="modalOverlay" hidden>
@@ -350,7 +330,6 @@
     <p class="modal-hint no-print">A helper to get your wording right — print it, then sign it in your old and new names, in person, in front of two independent witnesses aged 18+ who sign too.</p>
     <div class="modal-actions no-print">
       <button class="complete-btn" id="modalPrintBtn">🖨️ Print on A4</button>
-      <button class="complete-btn" id="modalCompleteBtn">Mark as Complete ✓</button>
     </div>
   </div>
 </div>
@@ -463,41 +442,17 @@
 
   const ring = document.getElementById('ring');
   const panel = document.getElementById('panel');
-  const progressText = document.getElementById('progressText');
-  const progressFill = document.getElementById('progressFill');
-  const completed = new Array(steps.length).fill(false);
   let currentIndex = null;
-
-  function updateProgress(){
-    const n = completed.filter(Boolean).length;
-    progressText.textContent = n + ' / ' + steps.length + ' complete';
-    progressFill.style.width = (n/steps.length*100) + '%';
-    if(n === steps.length){
-      progressText.textContent = '6 / 6 — ALL DONE! 🎉👑';
-    }
-  }
 
   function renderPanel(i){
     const s = steps[i];
-    const doneNow = completed[i];
     const showButton = i === 0;
     const showDvlaButton = i === 2;
     panel.innerHTML = `<h2>${s.title}</h2>${s.html}
-      ${showButton ? `<button class="complete-btn ${doneNow ? 'is-done':''}" id="completeBtn">
-        ${doneNow ? '✓ Completed — tap to undo' : 'Fill Out Form ✓'}
-      </button>` : ''}
+      ${showButton ? `<button class="complete-btn" id="completeBtn">Fill Out Form ✓</button>` : ''}
       ${showDvlaButton ? `<button class="complete-btn" id="dvlaLetterBtn">✉️ Draft DVLA Letter</button>` : ''}`;
     if(showButton){
-      document.getElementById('completeBtn').addEventListener('click', ()=>{
-        if(!doneNow){
-          openModal(i);
-          return;
-        }
-        completed[i] = !completed[i];
-        buttons[i].classList.toggle('done', completed[i]);
-        updateProgress();
-        renderPanel(i);
-      });
+      document.getElementById('completeBtn').addEventListener('click', openModal);
     }
     if(showDvlaButton){
       document.getElementById('dvlaLetterBtn').addEventListener('click', openDvlaModal);
@@ -507,31 +462,19 @@
   /* ---- Deed poll fill-in modal ---- */
   const modalOverlay = document.getElementById('modalOverlay');
   const modalClose = document.getElementById('modalClose');
-  const modalCompleteBtn = document.getElementById('modalCompleteBtn');
   const modalPrintBtn = document.getElementById('modalPrintBtn');
   const modalText = document.getElementById('modalText');
-  let modalStepIndex = null;
   modalPrintBtn.addEventListener('click', ()=> window.print());
 
-  function openModal(i){
-    modalStepIndex = i;
+  function openModal(){
     modalOverlay.hidden = false;
   }
   function closeModal(){
     modalOverlay.hidden = true;
-    modalStepIndex = null;
   }
   modalClose.addEventListener('click', closeModal);
   modalOverlay.addEventListener('click', (e)=>{ if(e.target === modalOverlay) closeModal(); });
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !modalOverlay.hidden) closeModal(); });
-  modalCompleteBtn.addEventListener('click', ()=>{
-    if(modalStepIndex === null) return;
-    completed[modalStepIndex] = true;
-    buttons[modalStepIndex].classList.add('done');
-    updateProgress();
-    closeModal();
-    renderPanel(modalStepIndex);
-  });
 
   function wireMirror(field){
     const input = modalText.querySelector(`input[data-field="${field}"]`);
@@ -564,7 +507,7 @@
   const buttons = steps.map((s,i)=>{
     const b = document.createElement('button');
     b.className = 'ring-btn ' + s.cls;
-    b.innerHTML = `<span class="emoji">${s.emoji}</span>${s.label}<span class="tick" aria-hidden="true">✓</span>`;
+    b.innerHTML = `<span class="emoji">${s.emoji}</span>${s.label}`;
     b.setAttribute('aria-label', s.label);
     b.addEventListener('click', ()=>{
       buttons.forEach(x=>x.classList.remove('active'));
@@ -598,7 +541,13 @@
   }
   layout();
   window.addEventListener('resize', layout);
-  updateProgress();
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    document.querySelectorAll('input.blank').forEach(inp=>{
+      inp.value = '';
+      inp.dispatchEvent(new Event('input'));
+    });
+  });
 </script>
 </body>
 </html>
