@@ -413,6 +413,33 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="gpModalOverlay" hidden>
+  <div class="modal-box" id="gpModalBox" role="dialog" aria-modal="true" aria-labelledby="gpModalTitle">
+    <button class="modal-close no-print" id="gpModalClose" aria-label="Close">✕</button>
+    <h2 id="gpModalTitle" class="no-print">🩺 GP Supporting Letter Guide</h2>
+    <div class="letter-paper" id="gpLetterText">
+      <p style="text-align:right">[date]</p>
+      <p><b>PRIVATE &amp; CONFIDENTIAL</b></p>
+      <p><b>TO WHOM IT MAY CONCERN</b></p>
+      <p><b>Re:</b> [patient's full name] &nbsp;DOB: [date of birth]<br>[patient's address]</p>
+      <p>I am writing to confirm the following in support of the above named patient's application for a Gender Recognition Certificate:</p>
+      <p><b>Living in Affirmed Gender</b><br>The above named patient has been living in their affirmed gender for a period of at least two years.</p>
+      <p><b>Intention to Continue Living in Affirmed Gender</b><br>The above named patient has expressed a clear and committed intention to live in this gender for the rest of their life.</p>
+      <p>They use their specified name and gender for all purposes in their day-to-day life and within their medical records at this practice.</p>
+      <p>Please do not hesitate to contact me if you require any further information or clarification.</p>
+      <p>Yours faithfully,</p>
+      <div class="sig-row letter-sig">
+        <div class="sig-box single"><span class="sig-cap">GP signature</span></div>
+      </div>
+      <p>[Dr's name]<br>[GP practice name]</p>
+    </div>
+    <p class="modal-hint no-print">A guide, not a legal template — show your GP surgery this wording and ask them to write it up on their letterhead.</p>
+    <div class="modal-actions no-print">
+      <button class="complete-btn" id="gpPrintBtn">🖨️ Print Guide</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const steps = [
     {
@@ -491,15 +518,20 @@
   function renderPanel(i){
     const s = steps[i];
     const showButton = i === 0;
+    const showGpButton = i === 1;
     const showDvlaButton = i === 2;
     panel.innerHTML = `<h2>${s.title}</h2>${s.html}
       ${showButton ? `<button class="complete-btn" id="completeBtn">Fill Out Form ✓</button>` : ''}
-      ${showDvlaButton ? `<button class="complete-btn" id="dvlaLetterBtn">✉️ Draft DVLA Letter</button>` : ''}`;
+      ${showDvlaButton ? `<button class="complete-btn" id="dvlaLetterBtn">✉️ Draft DVLA Letter</button>` : ''}
+      ${showGpButton ? `<button class="complete-btn" id="gpLetterBtn">🩺 GP Letter Guide</button>` : ''}`;
     if(showButton){
       document.getElementById('completeBtn').addEventListener('click', openModal);
     }
     if(showDvlaButton){
       document.getElementById('dvlaLetterBtn').addEventListener('click', openDvlaModal);
+    }
+    if(showGpButton){
+      document.getElementById('gpLetterBtn').addEventListener('click', openGpModal);
     }
   }
 
@@ -547,6 +579,22 @@
   dvlaModalOverlay.addEventListener('click', (e)=>{ if(e.target === dvlaModalOverlay) closeDvlaModal(); });
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !dvlaModalOverlay.hidden) closeDvlaModal(); });
   dvlaPrintBtn.addEventListener('click', ()=> window.print());
+
+  /* ---- GP supporting letter guide modal (printable) ---- */
+  const gpModalOverlay = document.getElementById('gpModalOverlay');
+  const gpModalClose = document.getElementById('gpModalClose');
+  const gpPrintBtn = document.getElementById('gpPrintBtn');
+
+  function openGpModal(){
+    gpModalOverlay.hidden = false;
+  }
+  function closeGpModal(){
+    gpModalOverlay.hidden = true;
+  }
+  gpModalClose.addEventListener('click', closeGpModal);
+  gpModalOverlay.addEventListener('click', (e)=>{ if(e.target === gpModalOverlay) closeGpModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !gpModalOverlay.hidden) closeGpModal(); });
+  gpPrintBtn.addEventListener('click', ()=> window.print());
 
   /* blank inputs grow to fit whatever's typed, so nothing (e.g. a long address) gets cut off */
   document.querySelectorAll('input.blank').forEach(inp=>{
@@ -631,6 +679,7 @@
   document.getElementById('resetBtn').addEventListener('click', ()=>{
     closeModal();
     closeDvlaModal();
+    closeGpModal();
     applyDefaultFieldState();
     buttons.forEach(b=> b.classList.remove('active'));
     currentIndex = null;
