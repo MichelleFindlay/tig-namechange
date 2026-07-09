@@ -215,12 +215,15 @@
   .modal-close:hover,.modal-close:focus-visible{background:rgba(43,35,64,.18);outline:none}
   .modal-box h2{font-family:'Fraunces',serif;font-weight:700;font-size:1.3rem;margin-bottom:18px;color:var(--nb-purple);text-align:center}
   .modal-text p{font-size:.95rem;line-height:1.9;font-weight:600;color:#3c3454;margin-bottom:14px}
-  .modal-text input.blank,.letter-paper input.blank{
+  .modal-text input.blank,.letter-paper input.blank,
+  .modal-text select.blank,.letter-paper select.blank{
     font:inherit;font-weight:800;color:var(--ink);
     border:none;border-bottom:2px solid var(--nb-purple);
     background:rgba(92,206,250,.1);padding:2px 6px;border-radius:4px 4px 0 0;
+    cursor:pointer;
   }
-  .modal-text input.blank:focus,.letter-paper input.blank:focus{outline:none;border-bottom-color:var(--t-pink);background:rgba(245,169,184,.14)}
+  .modal-text input.blank:focus,.letter-paper input.blank:focus,
+  .modal-text select.blank:focus,.letter-paper select.blank:focus{outline:none;border-bottom-color:var(--t-pink);background:rgba(245,169,184,.14)}
   .modal-text .mirror{font-weight:800;color:var(--nb-purple);border-bottom:2px dashed rgba(156,89,209,.4);padding:2px 4px}
   .modal-hint{font-size:.8rem;font-weight:600;font-style:italic;color:#6b6285;text-align:center;margin:4px 0 18px}
 
@@ -233,6 +236,8 @@
   }
   .sig-box.single{max-width:260px}
   .sig-cap{font-size:.72rem;font-weight:800;letter-spacing:.4px;color:#6b6285;text-transform:uppercase}
+  /* plain-text stand-in for a filled input, used only while printing (see beforeprint handler) */
+  .print-fill{font-weight:800}
 
   /* ============ DVLA LETTER MODAL (printable) ============ */
   .letter-paper{font-size:.92rem;line-height:1.8;font-weight:600;color:#3c3454;text-align:left}
@@ -263,7 +268,7 @@
       color:#000 !important;background:none !important;box-shadow:none !important;
       text-shadow:none !important;text-decoration:none !important;filter:none !important;
     }
-    .modal-overlay:not([hidden]) .mirror{border-bottom:1px solid #000 !important}
+    .modal-overlay:not([hidden]) .mirror{border-bottom:none !important}
     .modal-overlay:not([hidden]) .sig-box{border-color:#000 !important}
   }
   @page{size:A4;margin:20mm}
@@ -363,8 +368,37 @@
       <p>Dear Sir or Madam,</p>
       <p><b>Re: Update to gender marker and personal details — Driving licence number: <input type="text" class="blank" data-field="dvlaDriverNumber" placeholder="your driver number" size="18"></b></p>
       <p>I am writing to request that my driving licence records be updated to reflect my correct gender and personal details.</p>
-      <p>Please update my records as follows: my gender should be recorded as <input type="text" class="blank" data-field="dvlaGender" placeholder="male / female" size="12">, my title as <input type="text" class="blank" data-field="dvlaTitle" placeholder="Mr / Ms / Mx / etc." size="14">, and my name as <input type="text" class="blank" data-field="dvlaNewNameChange" placeholder="full new name, if changing" size="22">. My date of birth and address remain unchanged.</p>
-      <p>I enclose my completed D1 application form, my current photocard driving licence, a new passport-style photograph, and <input type="text" class="blank" data-field="dvlaEnclosure" placeholder="a copy of my deed poll / statutory declaration" size="32"> confirming my change of name.</p>
+      <p>Please update my records as follows: my gender should be recorded as <select class="blank" data-field="dvlaGender" data-placeholder="male / female">
+        <option value="" disabled selected>choose</option>
+        <option value="male">male</option>
+        <option value="female">female</option>
+      </select>, my title as <select class="blank" data-field="dvlaTitle" data-placeholder="Mr / Ms / Mx / etc.">
+        <option value="" disabled selected>choose a title</option>
+        <option value="none">None</option>
+        <option value="Mr">Mr</option>
+        <option value="Mrs">Mrs</option>
+        <option value="Miss">Miss</option>
+        <option value="Ms">Ms</option>
+        <option value="Mx">Mx</option>
+        <option value="Dr">Dr</option>
+        <option value="Prof">Prof (Professor)</option>
+        <option value="Rev">Rev (Reverend)</option>
+        <option value="Father">Father</option>
+        <option value="Sister">Sister</option>
+        <option value="Rabbi">Rabbi</option>
+        <option value="Imam">Imam</option>
+        <option value="Sir">Sir</option>
+        <option value="Dame">Dame</option>
+        <option value="Lord">Lord</option>
+        <option value="Lady">Lady</option>
+        <option value="Baron / Baroness">Baron / Baroness</option>
+        <option value="Count / Countess">Count / Countess</option>
+      </select>, and my name as <input type="text" class="blank" data-field="dvlaNewNameChange" placeholder="full new name, if changing" size="22">. My date of birth and address remain unchanged.</p>
+      <p>I enclose my completed D1 application form, my current photocard driving licence, a new passport-style photograph, and <select class="blank" data-field="dvlaEnclosure" data-placeholder="a copy of my deed poll / statutory declaration">
+        <option value="" disabled selected>choose a document</option>
+        <option value="a copy of my deed poll / statutory declaration">a copy of my deed poll / statutory declaration</option>
+        <option value="a copy of my gender recognition certificate">a copy of my gender recognition certificate</option>
+      </select> confirming my change of name.</p>
       <p>I would be grateful if you could issue an updated licence and driver number reflecting these details. Please contact me at <input type="text" class="blank" data-field="dvlaContact" placeholder="phone number / email" size="20"> if you require anything further.</p>
       <p>Yours faithfully,</p>
       <div class="sig-row letter-sig">
@@ -513,6 +547,40 @@
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !dvlaModalOverlay.hidden) closeDvlaModal(); });
   dvlaPrintBtn.addEventListener('click', ()=> window.print());
 
+  /* blank inputs grow to fit whatever's typed, so nothing (e.g. a long address) gets cut off */
+  document.querySelectorAll('input.blank').forEach(inp=>{
+    const grow = ()=>{ inp.size = Math.max(inp.value.length || inp.placeholder.length, 4) + 1; };
+    inp.addEventListener('input', grow);
+    grow();
+  });
+
+  /* deed poll date defaults to today, DD/MM/YYYY, but stays editable */
+  const pad2 = n => String(n).padStart(2,'0');
+  const today = new Date();
+  const deedDateInput = modalText.querySelector('input[data-field="date"]');
+  deedDateInput.value = `${pad2(today.getDate())}/${pad2(today.getMonth()+1)}/${today.getFullYear()}`;
+  deedDateInput.dispatchEvent(new Event('input'));
+
+  /* an <input>'s character-based width never matches its text's real width, which
+     shows up as a gap once print strips its border/background — so for print, swap
+     each input/select for plain text sized exactly to what's actually in it */
+  window.addEventListener('beforeprint', ()=>{
+    document.querySelectorAll('input.blank, select.blank').forEach(el=>{
+      const isSelect = el.tagName === 'SELECT';
+      const value = isSelect ? el.value : el.value.trim();
+      const placeholder = isSelect ? el.dataset.placeholder : el.placeholder;
+      const span = document.createElement('span');
+      span.className = 'print-fill';
+      span.textContent = value || `[${placeholder}]`;
+      el.insertAdjacentElement('afterend', span);
+      el.style.display = 'none';
+    });
+  });
+  window.addEventListener('afterprint', ()=>{
+    document.querySelectorAll('.print-fill').forEach(span=> span.remove());
+    document.querySelectorAll('input.blank, select.blank').forEach(el=> el.style.display = '');
+  });
+
   const buttons = steps.map((s,i)=>{
     const b = document.createElement('button');
     b.className = 'ring-btn ' + s.cls;
@@ -556,6 +624,7 @@
       inp.value = '';
       inp.dispatchEvent(new Event('input'));
     });
+    document.querySelectorAll('select.blank').forEach(sel=>{ sel.selectedIndex = 0; });
   });
 </script>
 </body>
