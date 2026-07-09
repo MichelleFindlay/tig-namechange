@@ -485,6 +485,7 @@
 
   const ring = document.getElementById('ring');
   const panel = document.getElementById('panel');
+  const defaultPanelHTML = panel.innerHTML;
   let currentIndex = null;
 
   function renderPanel(i){
@@ -554,12 +555,20 @@
     grow();
   });
 
-  /* deed poll date defaults to today, DD/MM/YYYY, but stays editable */
-  const pad2 = n => String(n).padStart(2,'0');
-  const today = new Date();
-  const deedDateInput = modalText.querySelector('input[data-field="date"]');
-  deedDateInput.value = `${pad2(today.getDate())}/${pad2(today.getMonth()+1)}/${today.getFullYear()}`;
-  deedDateInput.dispatchEvent(new Event('input'));
+  /* the state every field is in on first load — also reused by the reset button */
+  function applyDefaultFieldState(){
+    document.querySelectorAll('input.blank').forEach(inp=>{
+      inp.value = '';
+      inp.dispatchEvent(new Event('input'));
+    });
+    document.querySelectorAll('select.blank').forEach(sel=>{ sel.selectedIndex = 0; });
+    const pad2 = n => String(n).padStart(2,'0');
+    const today = new Date();
+    const deedDateInput = modalText.querySelector('input[data-field="date"]');
+    deedDateInput.value = `${pad2(today.getDate())}/${pad2(today.getMonth()+1)}/${today.getFullYear()}`;
+    deedDateInput.dispatchEvent(new Event('input'));
+  }
+  applyDefaultFieldState();
 
   /* an <input>'s character-based width never matches its text's real width, which
      shows up as a gap once print strips its border/background — so for print, swap
@@ -620,11 +629,12 @@
   window.addEventListener('resize', layout);
 
   document.getElementById('resetBtn').addEventListener('click', ()=>{
-    document.querySelectorAll('input.blank').forEach(inp=>{
-      inp.value = '';
-      inp.dispatchEvent(new Event('input'));
-    });
-    document.querySelectorAll('select.blank').forEach(sel=>{ sel.selectedIndex = 0; });
+    closeModal();
+    closeDvlaModal();
+    applyDefaultFieldState();
+    buttons.forEach(b=> b.classList.remove('active'));
+    currentIndex = null;
+    panel.innerHTML = defaultPanelHTML;
   });
 </script>
 </body>
