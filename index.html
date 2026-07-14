@@ -543,6 +543,17 @@
       <span class="badge">Do this first</span>`
     },
     {
+      emoji:"🩺", label:"NHS / GP records", cls:"",
+      title:"NHS / GP Records",
+      html:`<p>Ask your GP practice to update your details.</p>
+      <ul>
+        <li>Show your <b>deed poll</b> to change your name on your records.</li>
+        <li>You can ask to change your <b>gender marker</b> too — this issues a <b>new NHS number</b> and a fresh record.</li>
+        <li>Chat with your GP about keeping screening invitations relevant to your body.</li>
+      </ul>
+      <span class="badge">New NHS number issued</span>`
+    },
+    {
       emoji:"🛂", label:"Passport", cls:"",
       title:"Passport (HM Passport Office)",
       html:`<p>Apply for a new passport in your name and gender marker.</p>
@@ -574,17 +585,6 @@
         <li>You can also ask HMRC to update your gender on their records.</li>
       </ul>
       <span class="badge">NI number never changes</span>`
-    },
-    {
-      emoji:"🩺", label:"NHS / GP records", cls:"",
-      title:"NHS / GP Records",
-      html:`<p>Ask your GP practice to update your details.</p>
-      <ul>
-        <li>Show your <b>deed poll</b> to change your name on your records.</li>
-        <li>You can ask to change your <b>gender marker</b> too — this issues a <b>new NHS number</b> and a fresh record.</li>
-        <li>Chat with your GP about keeping screening invitations relevant to your body.</li>
-      </ul>
-      <span class="badge">New NHS number issued</span>`
     },
     {
       emoji:"🗳️", label:"Electoral roll (council)", cls:"",
@@ -628,9 +628,10 @@
 
   function renderPanel(i){
     const s = steps[i];
-    const showButton = i === 0;
-    const showGpButton = i === 1;
-    const showDvlaButton = i === 2;
+    // matched by label, not index, so these stay correct if `steps` is reordered
+    const showButton = s.label === "Deed poll / statutory declaration";
+    const showGpButton = s.label === "Passport";
+    const showDvlaButton = s.label === "Driving licence (DVLA)";
     panel.innerHTML = `<h2>${s.title}</h2>${s.html}
       ${showButton ? `<button class="complete-btn" id="completeBtn">Fill Out Form ✓</button>` : ''}
       ${showDvlaButton ? `<button class="complete-btn" id="dvlaLetterBtn">✉️ Draft DVLA Letter</button>` : ''}
