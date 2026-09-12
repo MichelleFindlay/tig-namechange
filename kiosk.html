@@ -56,39 +56,76 @@
     left:0;
     right:0;
     bottom:0;
+    overflow:hidden;
   }
   iframe{
-    width:100%;
-    height:100%;
     border:0;
     display:block;
     background:#fffdfa;
+  }
+  /* default: fill the frame, no scaling */
+  iframe.fill{
+    width:100%;
+    height:100%;
+  }
+  /* scaled: rendered at its native design size, then shrunk/grown to fit */
+  iframe.scaled{
+    position:absolute;
+    top:50%;
+    left:50%;
+    width:var(--native-w);
+    height:var(--native-h);
+    transform:translate(-50%,-50%) scale(var(--fit-scale,1));
+    transform-origin:center;
   }
 </style>
 </head>
 <body>
 
 <nav class="topbar" role="navigation" aria-label="Kiosk sections">
-  <a class="tab active" href="index.html" data-src="index.html">Name Change Station</a>
+  <a class="tab active" href="index.html" data-src="index.html" data-scale="true">Name Change Station</a>
   <a class="tab" href="http://localhost:8000" data-src="http://localhost:8000">Understand Don't Assume</a>
 </nav>
 
-<div class="frame-wrap">
-  <iframe id="viewer" src="index.html" title="Kiosk content"></iframe>
+<div class="frame-wrap" id="frameWrap">
+  <iframe id="viewer" class="fill" src="index.html" title="Kiosk content"></iframe>
 </div>
 
 <script>
+  const NATIVE_W = 1920;
+  const NATIVE_H = 1080;
+
   const tabs = document.querySelectorAll('.tab');
   const viewer = document.getElementById('viewer');
+  const frameWrap = document.getElementById('frameWrap');
+
+  frameWrap.style.setProperty('--native-w', NATIVE_W + 'px');
+  frameWrap.style.setProperty('--native-h', NATIVE_H + 'px');
+
+  function updateScale(){
+    if(!viewer.classList.contains('scaled')) return;
+    const scale = Math.min(frameWrap.clientWidth / NATIVE_W, frameWrap.clientHeight / NATIVE_H);
+    frameWrap.style.setProperty('--fit-scale', scale);
+  }
+
+  function setViewer(src, scaled){
+    viewer.src = src;
+    viewer.classList.toggle('scaled', scaled);
+    viewer.classList.toggle('fill', !scaled);
+    if(scaled) updateScale();
+  }
 
   tabs.forEach(tab => {
     tab.addEventListener('click', e => {
       e.preventDefault();
       tabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      viewer.src = tab.dataset.src;
+      setViewer(tab.dataset.src, tab.dataset.scale === 'true');
     });
   });
+
+  window.addEventListener('resize', updateScale);
+  updateScale();
 </script>
 
 </body>
