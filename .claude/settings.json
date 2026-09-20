@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 5 curl -sI https://deb.debian.org)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"import weasyprint; print\\(weasyprint.__version__\\)\")",
+      "Bash(cd /home/mf/Documents/GitHub/tig-namechange *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}
