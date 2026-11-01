@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- `index.php`: a PHP version of the page with **Export** and **Import** buttons that save and restore every filled-in field and checklist tick as an XML file. Uploads are size-capped, DTDs are rejected, and only known field names are read back in; nothing is stored server-side.
+
 ## [v2.10]
 
 ### Added
