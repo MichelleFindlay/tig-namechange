@@ -1,0 +1,1137 @@
+<?php
+/* PHP version of index.html — identical page, plus server-side XML export/import
+   of every filled-in field and checklist tick. Nothing is stored on the server:
+   export streams the file straight back, import just pre-fills the page. */
+
+const EXPORT_VERSION = '1';
+const MAX_IMPORT_BYTES = 102400;
+const MAX_VALUE_LENGTH = 500;
+const MAX_CHECKLIST_ITEMS = 50;
+
+/* the only data-field names we'll ever export or import */
+const FIELDS = [
+  'oldName','address','newName','date','w1Name','w1Address','w2Name','w2Address',
+  'dvlaCurrentName','dvlaAddress','dvlaPostcode','dvlaDate','dvlaDriverNumber',
+  'dvlaGender','dvlaTitle','dvlaNewNameChange','dvlaEnclosure','dvlaSupportingDoc',
+  'dvlaContact','dvlaNewName',
+];
+
+function clean_value($v){
+  if(!is_string($v)) return '';
+  $v = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $v) ?? '';
+  return mb_substr($v, 0, MAX_VALUE_LENGTH, 'UTF-8');
+}
+
+function export_xml(array $post){
+  $xml = new XMLWriter();
+  $xml->openMemory();
+  $xml->setIndent(true);
+  $xml->setIndentString('  ');
+  $xml->startDocument('1.0', 'UTF-8');
+  $xml->startElement('nameChange');
+  $xml->writeAttribute('version', EXPORT_VERSION);
+  $xml->writeAttribute('exported', gmdate('Y-m-d\TH:i:s\Z'));
+
+  $xml->startElement('fields');
+  $fields = is_array($post['fields'] ?? null) ? $post['fields'] : [];
+  foreach(FIELDS as $name){
+    $xml->startElement('field');
+    $xml->writeAttribute('name', $name);
+    $xml->text(clean_value($fields[$name] ?? ''));
+    $xml->endElement();
+  }
+  $xml->endElement();
+
+  $xml->startElement('checklist');
+  $items = is_array($post['checklist'] ?? null) ? $post['checklist'] : [];
+  foreach($items as $i => $item){
+    if(!is_array($item) || !ctype_digit((string)$i) || (int)$i >= MAX_CHECKLIST_ITEMS) continue;
+    $xml->startElement('item');
+    $xml->writeAttribute('index', (string)(int)$i);
+    $xml->writeAttribute('inProgress', !empty($item['progress']) ? 'true' : 'false');
+    $xml->writeAttribute('done', !empty($item['done']) ? 'true' : 'false');
+    $xml->endElement();
+  }
+  $xml->startElement('allDone');
+  $xml->text(!empty($post['allDone']) ? 'true' : 'false');
+  $xml->endElement();
+  $xml->endElement();
+
+  $xml->endElement();
+  $xml->endDocument();
+
+  header('Content-Type: application/xml; charset=UTF-8');
+  header('Content-Disposition: attachment; filename="name-change-' . gmdate('Y-m-d') . '.xml"');
+  header('Cache-Control: no-store');
+  echo $xml->outputMemory();
+  exit;
+}
+
+/* returns [state, error] — state is null when the file couldn't be used */
+function import_xml(?array $upload){
+  if(!$upload || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE){
+    return [null, 'No file was chosen to import.'];
+  }
+  if($upload['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($upload['tmp_name'])){
+    return [null, 'The file could not be uploaded — please try again.'];
+  }
+  if($upload['size'] > MAX_IMPORT_BYTES){
+    return [null, 'That file is too large to be a name-change export.'];
+  }
+  $raw = file_get_contents($upload['tmp_name']);
+  /* no DTDs at all — rules out entity expansion and external entity tricks */
+  if($raw === false || $raw === '' || stripos($raw, '<!DOCTYPE') !== false || stripos($raw, '<!ENTITY') !== false){
+    return [null, 'That file isn\'t a valid name-change export.'];
+  }
+
+  $prev = libxml_use_internal_errors(true);
+  $doc = new DOMDocument();
+  $ok = $doc->loadXML($raw, LIBXML_NONET);
+  libxml_clear_errors();
+  libxml_use_internal_errors($prev);
+  if(!$ok || !$doc->documentElement || $doc->documentElement->nodeName !== 'nameChange'){
+    return [null, 'That file isn\'t a valid name-change export.'];
+  }
+
+  $state = ['fields' => [], 'checklist' => [], 'allDone' => false];
+  foreach($doc->getElementsByTagName('field') as $el){
+    $name = $el->getAttribute('name');
+    if(in_array($name, FIELDS, true)){
+      $state['fields'][$name] = clean_value($el->textContent);
+    }
+  }
+  foreach($doc->getElementsByTagName('item') as $el){
+    $i = $el->getAttribute('index');
+    if(!ctype_digit($i) || (int)$i >= MAX_CHECKLIST_ITEMS) continue;
+    $state['checklist'][(int)$i] = [
+      'progress' => $el->getAttribute('inProgress') === 'true',
+      'done' => $el->getAttribute('done') === 'true',
+    ];
+  }
+  $allDone = $doc->getElementsByTagName('allDone')->item(0);
+  $state['allDone'] = $allDone && trim($allDone->textContent) === 'true';
+  return [$state, null];
+}
+
+$imported = null;
+$importMessage = null;
+$importError = false;
+if($_SERVER['REQUEST_METHOD'] === 'POST'){
+  $action = $_POST['action'] ?? '';
+  if($action === 'export'){
+    export_xml($_POST);
+  }
+  if($action === 'import'){
+    [$imported, $err] = import_xml($_FILES['importFile'] ?? null);
+    $importError = $err !== null;
+    $importMessage = $err ?? 'Your details have been imported. ✨';
+  }
+}
+$jsonFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE;
+?>
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Name-Change Journey ✦</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Trans flag */
+    --t-blue:#5BCEFA; --t-pink:#F5A9B8; --t-white:#FFFFFF;
+    /* Non-binary flag */
+    --nb-yellow:#FCF434; --nb-purple:#9C59D1; --nb-black:#2C2C2C;
+    --ink:#2b2340;
+    --card:#fffdfa;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    font-family:'Nunito',sans-serif;
+    color:var(--ink);
+    overflow-x:hidden;
+    background:#eaf7ff;
+  }
+
+  /* ============ EVER-CHANGING MESH BACKGROUND ============ */
+  .mesh{
+    position:fixed; inset:0; z-index:-2; overflow:hidden;
+    background:linear-gradient(180deg,#eaf7ff,#fff5f8);
+  }
+  .blob{
+    position:absolute; border-radius:50%;
+    filter:blur(90px);
+    opacity:.75;
+    animation-timing-function:ease-in-out;
+    animation-iteration-count:infinite;
+  }
+  .b1{width:55vmax;height:55vmax;top:-15vmax;left:-10vmax;
+      background:var(--t-blue);
+      animation:drift1 26s infinite, hue1 40s infinite;}
+  .b2{width:50vmax;height:50vmax;top:30%;right:-15vmax;
+      background:var(--t-pink);
+      animation:drift2 31s infinite, hue2 46s infinite;}
+  .b3{width:45vmax;height:45vmax;bottom:-18vmax;left:15%;
+      background:var(--nb-yellow); opacity:.55;
+      animation:drift3 37s infinite, hue3 52s infinite;}
+  .b4{width:40vmax;height:40vmax;top:5%;left:35%;
+      background:var(--nb-purple); opacity:.45;
+      animation:drift4 29s infinite, hue4 44s infinite;}
+  .b5{width:35vmax;height:35vmax;bottom:5%;right:20%;
+      background:var(--t-white); opacity:.8;
+      animation:drift1 34s infinite reverse;}
+
+  @keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(8vmax,6vmax) scale(1.15)}66%{transform:translate(-5vmax,10vmax) scale(.9)}}
+  @keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(-10vmax,-6vmax) scale(1.1)}66%{transform:translate(-4vmax,8vmax) scale(1.2)}}
+  @keyframes drift3{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(12vmax,-10vmax) scale(1.25)}}
+  @keyframes drift4{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-8vmax,12vmax) scale(.85)}}
+  @keyframes hue1{0%,100%{background:var(--t-blue)}40%{background:var(--nb-yellow)}70%{background:var(--nb-purple)}}
+  @keyframes hue2{0%,100%{background:var(--t-pink)}45%{background:var(--nb-purple)}75%{background:var(--t-blue)}}
+  @keyframes hue3{0%,100%{background:var(--nb-yellow)}50%{background:var(--t-pink)}}
+  @keyframes hue4{0%,100%{background:var(--nb-purple)}50%{background:var(--t-blue)}80%{background:var(--nb-yellow)}}
+
+  /* ============ FLOATING DOCUMENTS & PENS ============ */
+  .floaties{position:fixed;inset:0;z-index:-1;pointer-events:none}
+  .floaty{position:absolute;animation:bob var(--dur,14s) ease-in-out infinite;opacity:.85;
+          filter:drop-shadow(0 10px 18px rgba(43,35,64,.18))}
+  @keyframes bob{
+    0%,100%{transform:translateY(0) rotate(var(--rot,0deg))}
+    50%{transform:translateY(-26px) rotate(calc(var(--rot,0deg) + 5deg))}
+  }
+  .doc{width:74px;height:96px;background:#fff;border-radius:8px;position:relative;border:2px solid rgba(43,35,64,.12)}
+  .doc::before{content:"";position:absolute;left:12px;right:12px;top:16px;height:6px;border-radius:3px;
+    background:linear-gradient(90deg,var(--t-blue),var(--t-pink));}
+  .doc::after{content:"";position:absolute;left:12px;right:12px;top:32px;height:44px;
+    background:repeating-linear-gradient(180deg,rgba(43,35,64,.18) 0 3px,transparent 3px 12px);}
+  .doc .stamp{position:absolute;bottom:8px;right:10px;width:20px;height:20px;border-radius:50%;
+    border:3px solid var(--nb-purple);opacity:.6}
+  .pen{width:14px;height:110px;border-radius:8px 8px 4px 4px;position:relative;
+    background:linear-gradient(180deg,var(--nb-purple) 0 55%, var(--t-pink) 55% 100%)}
+  .pen::before{content:"";position:absolute;top:-16px;left:50%;transform:translateX(-50%);
+    border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:18px solid var(--t-blue)}
+  .pen.gold{background:linear-gradient(180deg,#f7d774 0 55%, #fcf434 55% 100%)}
+  .pen.gold::before{border-bottom-color:#e8b64c}
+
+  /* ============ LAYOUT ============ */
+  header{text-align:center;padding:56px 20px 8px}
+  .logo{
+    position:fixed;top:16px;right:16px;z-index:40;
+    width:clamp(64px,9vw,110px);height:auto;
+    filter:drop-shadow(0 6px 14px rgba(43,35,64,.25));
+  }
+  h1{font-family:'Fraunces',serif;font-weight:900;font-size:clamp(2rem,5vw,3.4rem);
+     background:linear-gradient(90deg,var(--t-blue),var(--nb-purple),var(--t-pink));
+     -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .sub{max-width:560px;margin:14px auto 0;font-size:1.05rem;font-weight:600;color:#4a4162}
+
+  .reset-btn{
+    display:inline-flex;align-items:center;gap:8px;margin-top:16px;
+    background:rgba(255,255,255,.75);backdrop-filter:blur(6px);
+    padding:10px 22px;border-radius:999px;font-weight:800;font-size:.9rem;
+    box-shadow:0 6px 16px rgba(43,35,64,.12);
+    border:none;color:var(--ink);font-family:'Nunito',sans-serif;cursor:pointer;
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
+  }
+  .reset-btn:hover,.reset-btn:focus-visible{transform:translateY(-2px);box-shadow:0 10px 22px rgba(43,35,64,.2);outline:none}
+  .reset-btn:focus-visible{outline:3px solid var(--nb-purple);outline-offset:3px}
+  .header-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:0 10px}
+  .import-msg{
+    max-width:560px;margin:14px auto 0;padding:8px 16px;border-radius:14px;
+    font-weight:700;font-size:.9rem;background:rgba(255,255,255,.75);
+  }
+  .import-msg.error{color:#a01b3c}
+
+  /* ============ VERSION + GITHUB FLOATING BADGE ============ */
+  .version-fab{
+    position:fixed;right:16px;bottom:16px;z-index:40;
+    display:flex;align-items:center;gap:10px;
+    background:rgba(255,255,255,.85);backdrop-filter:blur(6px);
+    padding:8px 14px;border-radius:999px;
+    box-shadow:0 6px 16px rgba(43,35,64,.18);
+    font-weight:800;font-size:.78rem;color:var(--ink);
+  }
+  .version-fab .v-tag{opacity:.7;letter-spacing:.3px}
+  .version-fab .gh-link{
+    display:flex;align-items:center;justify-content:center;
+    width:26px;height:26px;border-radius:50%;
+    background:var(--ink);color:#fff;
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1), background .2s;
+  }
+  .version-fab .gh-link:hover,.version-fab .gh-link:focus-visible{
+    transform:translateY(-2px) scale(1.08);background:var(--nb-purple);outline:none;
+  }
+  .version-fab .gh-link:focus-visible{outline:3px solid var(--nb-purple);outline-offset:2px}
+  .version-fab svg{width:16px;height:16px;fill:currentColor;display:block}
+  @media (max-width:420px){
+    .version-fab{right:10px;bottom:10px;padding:6px 10px;gap:6px;font-size:.68rem}
+    .version-fab .gh-link{width:22px;height:22px}
+    .version-fab svg{width:13px;height:13px}
+  }
+
+  /* The ring: sized so buttons NEVER touch the centre panel.
+     --ring-d = wrap diameter, --btn-w = button width, --panel-w = panel width.
+     radius = ring-d/2 - btn-w/2 - edge padding. Panel capped well inside radius. */
+  .ring-wrap{
+    --btn-w:148px;
+    position:relative;
+    width:min(94vw,var(--ring-cap,860px));
+    height:min(94vw,var(--ring-cap,860px));
+    margin:28px auto 60px;
+  }
+  .ring-btn{
+    position:absolute;
+    width:var(--btn-w);
+    min-height:96px;
+    padding:12px 10px;
+    left:calc(50% + var(--x) - var(--btn-w)/2);
+    top:calc(50% + var(--y) - 48px);
+    border:none;border-radius:20px;
+    background:var(--card);
+    box-shadow:0 8px 22px rgba(43,35,64,.16), inset 0 0 0 2px rgba(92,206,250,.35);
+    font-family:'Nunito',sans-serif;font-weight:800;font-size:.82rem;line-height:1.25;
+    color:var(--ink);cursor:pointer;
+    transition:transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s;
+  }
+  .ring-btn .emoji{display:block;font-size:1.35rem;margin-bottom:4px}
+  .ring-btn:hover,.ring-btn:focus-visible{
+    transform:translateY(-6px) scale(1.05);
+    box-shadow:0 14px 30px rgba(43,35,64,.25), inset 0 0 0 3px var(--t-pink);
+  }
+  .ring-btn:focus-visible{outline:3px solid var(--nb-purple);outline-offset:3px}
+  .ring-btn.active{
+    background:linear-gradient(135deg,#fff, #f0e6ff);
+    box-shadow:0 14px 30px rgba(156,89,209,.35), inset 0 0 0 3px var(--nb-purple);
+  }
+
+  /* sparkly GRC button */
+  .ring-btn.grc{
+    background:linear-gradient(120deg,#ffe9a8,#fff6d8 30%,#ffd76e 50%,#fff6d8 70%,#ffe9a8);
+    background-size:250% 250%;
+    animation:shimmer 3.5s linear infinite;
+    box-shadow:0 10px 26px rgba(232,182,76,.5), inset 0 0 0 2px #e8b64c;
+    overflow:visible;
+  }
+  @keyframes shimmer{0%{background-position:0% 50%}100%{background-position:250% 50%}}
+  .ring-btn.grc::before,.ring-btn.grc::after{
+    content:"✦";position:absolute;color:#fff;text-shadow:0 0 8px #ffd76e;font-size:1rem;
+    animation:twinkle 1.8s ease-in-out infinite;
+  }
+  .ring-btn.grc::before{top:-10px;left:-6px}
+  .ring-btn.grc::after{bottom:-10px;right:-6px;animation-delay:.9s}
+  @keyframes twinkle{0%,100%{opacity:.2;transform:scale(.6) rotate(0deg)}50%{opacity:1;transform:scale(1.25) rotate(25deg)}}
+
+  /* centre info panel — capped so it can never reach the buttons */
+  .panel{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:min(40%,330px);
+    max-height:62%;
+    overflow-y:auto;
+    background:rgba(255,253,250,.94);
+    backdrop-filter:blur(8px);
+    border-radius:26px;
+    padding:22px 20px;
+    box-shadow:0 18px 44px rgba(43,35,64,.22);
+    border:2px solid rgba(255,255,255,.9);
+    text-align:center;
+    transition:opacity .3s;
+  }
+  .panel h2{font-family:'Fraunces',serif;font-weight:700;font-size:1.15rem;margin-bottom:8px;
+    color:var(--nb-purple)}
+  .panel p{font-size:.88rem;line-height:1.5;font-weight:600;color:#3c3454}
+  .panel ul{text-align:left;margin:8px 0 0 18px;font-size:.84rem;line-height:1.5;font-weight:600;color:#3c3454}
+  .panel .badge{display:inline-block;margin-top:10px;padding:4px 14px;border-radius:999px;
+    font-size:.72rem;font-weight:800;letter-spacing:.4px;
+    background:linear-gradient(90deg,var(--t-blue),var(--t-pink));color:#fff}
+
+  /* the Complete button inside the panel */
+  .complete-btn{
+    display:block;width:100%;margin-top:14px;
+    border:none;border-radius:16px;padding:12px;
+    font-family:'Nunito',sans-serif;font-weight:800;font-size:.9rem;cursor:pointer;
+    background:linear-gradient(90deg,var(--t-blue),var(--nb-purple));color:#fff;
+    box-shadow:0 8px 18px rgba(92,150,250,.35);
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s, background .3s;
+  }
+  .complete-btn:hover,.complete-btn:focus-visible{transform:translateY(-3px);box-shadow:0 12px 24px rgba(92,150,250,.45);outline:none}
+  .complete-btn:focus-visible{outline:3px solid var(--nb-purple);outline-offset:2px}
+
+  footer{text-align:center;padding:0 20px 48px;font-size:.85rem;font-weight:600;color:#5a5175}
+  footer p{margin-top:14px}
+
+  /* ============ DEED POLL FILL-IN MODAL ============ */
+  .modal-overlay{
+    position:fixed;inset:0;z-index:50;
+    background:rgba(43,35,64,.55);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;padding:20px;
+  }
+  .modal-overlay[hidden]{display:none}
+  .modal-box{
+    position:relative;background:#fff;border-radius:26px;
+    max-width:640px;width:100%;max-height:86vh;overflow-y:auto;
+    padding:38px 30px 30px;
+    box-shadow:0 24px 60px rgba(43,35,64,.4);
+    border:2px solid rgba(255,255,255,.9);
+    animation:popIn .3s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes popIn{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+  .modal-close{
+    position:absolute;top:14px;right:14px;width:34px;height:34px;border:none;border-radius:50%;
+    background:rgba(43,35,64,.08);color:var(--ink);font-size:1rem;line-height:1;cursor:pointer;
+  }
+  .modal-close:hover,.modal-close:focus-visible{background:rgba(43,35,64,.18);outline:none}
+  .modal-box h2{font-family:'Fraunces',serif;font-weight:700;font-size:1.3rem;margin-bottom:18px;color:var(--nb-purple);text-align:center}
+  .modal-text p{font-size:.95rem;line-height:1.9;font-weight:600;color:#3c3454;margin-bottom:14px}
+  .modal-text input.blank,.letter-paper input.blank,
+  .modal-text select.blank,.letter-paper select.blank{
+    font:inherit;font-weight:800;color:var(--ink);
+    border:none;border-bottom:2px solid var(--nb-purple);
+    background:rgba(92,206,250,.1);padding:2px 6px;border-radius:4px 4px 0 0;
+    cursor:pointer;
+  }
+  .modal-text input.blank:focus,.letter-paper input.blank:focus,
+  .modal-text select.blank:focus,.letter-paper select.blank:focus{outline:none;border-bottom-color:var(--t-pink);background:rgba(245,169,184,.14)}
+  .modal-text .mirror{font-weight:800;color:var(--nb-purple);border-bottom:2px dashed rgba(156,89,209,.4);padding:2px 4px}
+  .modal-hint{font-size:.8rem;font-weight:600;font-style:italic;color:#6b6285;text-align:center;margin:4px 0 18px}
+
+  /* blank ruled space for a real ink signature, ~4-5 lines tall */
+  .sig-row{display:flex;flex-wrap:wrap;gap:16px;margin:18px 0}
+  .sig-box{
+    flex:1;min-width:140px;min-height:112px;
+    border:2px dashed rgba(43,35,64,.3);border-radius:10px;
+    display:flex;align-items:flex-end;justify-content:center;padding:6px;
+  }
+  .sig-box.single{max-width:260px}
+  .sig-cap{font-size:.72rem;font-weight:800;letter-spacing:.4px;color:#6b6285;text-transform:uppercase}
+  /* plain-text stand-in for a filled input, used only while printing (see beforeprint handler) */
+  .print-fill{font-weight:800}
+
+  /* ============ CHECKLIST MODAL (printable) ============ */
+  .checklist-scroll{overflow-x:auto;margin-top:6px}
+  .checklist-table{width:100%;border-collapse:collapse}
+  .checklist-table th,.checklist-table td{
+    border:1px solid rgba(43,35,64,.25);padding:10px 12px;text-align:left;
+    font-size:.88rem;font-weight:600;color:#3c3454;
+  }
+  .checklist-table th{font-weight:800;color:var(--nb-purple);background:rgba(92,206,250,.1)}
+  .checklist-table td:nth-child(2),.checklist-table td:nth-child(3),
+  .checklist-table th:nth-child(2),.checklist-table th:nth-child(3){text-align:center;width:110px}
+  .checklist-table input[type="checkbox"]{width:20px;height:20px;cursor:pointer;accent-color:var(--nb-purple)}
+  .checklist-table tr.star-row td{font-weight:800}
+  .checklist-star{font-size:1.1rem;filter:grayscale(.6);transition:filter .3s,text-shadow .3s}
+  .checklist-star.lit{filter:none;text-shadow:0 0 10px #ffd76e}
+
+  /* confetti burst on full completion */
+  .confetti-piece{
+    position:fixed;top:-20px;width:10px;height:14px;z-index:999;
+    opacity:.9;border-radius:2px;pointer-events:none;
+    animation-name:confetti-fall;animation-timing-function:ease-in;animation-fill-mode:forwards;
+  }
+  @keyframes confetti-fall{
+    to{transform:translate(var(--drift,0),110vh) rotate(var(--rot,360deg));opacity:.4}
+  }
+
+  /* ============ DVLA LETTER MODAL (printable) ============ */
+  .letter-paper{font-size:.92rem;line-height:1.8;font-weight:600;color:#3c3454;text-align:left}
+  .letter-paper p{margin-bottom:14px}
+  .letter-block{margin-bottom:16px}
+  .letter-block div{display:block}
+  .letter-block.right{margin-left:auto;text-align:right;width:fit-content}
+  .letter-sig{margin-top:26px}
+  .modal-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:6px}
+  .modal-actions .complete-btn{width:auto;padding:12px 26px}
+
+  /* ============ PRINT: whichever modal is open, print it alone on A4 ============ */
+  @media print{
+    body > *:not(.modal-overlay){display:none !important}
+    .modal-overlay{display:none !important}
+    .modal-overlay:not([hidden]){
+      display:block !important;position:static !important;background:none !important;
+      backdrop-filter:none !important;padding:0 !important;
+    }
+    .modal-overlay:not([hidden]) .no-print{display:none !important}
+    .modal-overlay:not([hidden]) .modal-box{
+      position:static;width:100%;max-width:none;max-height:none;overflow:visible;
+      box-shadow:none;border:none;margin:0;padding:0;border-radius:0;animation:none;
+    }
+    .letter-paper input.blank,.modal-text input.blank{border:none !important;background:none !important;padding:0 2px !important}
+    /* plain black text on the printed page — no purple/coloured webpage styling */
+    .modal-overlay:not([hidden]) *{
+      color:#000 !important;background:none !important;box-shadow:none !important;
+      text-shadow:none !important;text-decoration:none !important;filter:none !important;
+    }
+    .modal-overlay:not([hidden]) .mirror{border-bottom:none !important}
+    .modal-overlay:not([hidden]) .sig-box{border-color:#000 !important}
+    .modal-overlay:not([hidden]) .checklist-table th,
+    .modal-overlay:not([hidden]) .checklist-table td{border-color:transparent !important}
+    .modal-overlay:not([hidden]) .checklist-star{filter:none !important;text-shadow:none !important}
+    .modal-overlay:not([hidden]) input[type="checkbox"]{accent-color:#000 !important}
+    /* keep every printed document on a single A4 page */
+    .modal-text p,.letter-paper p{margin-bottom:8px !important;line-height:1.5 !important}
+    .sig-row{margin:10px 0 !important}
+    .sig-box{min-height:70px !important}
+    .letter-block{margin-bottom:8px !important}
+    .checklist-table{font-size:.72rem !important}
+    .checklist-table th,.checklist-table td{padding:3px 8px !important;line-height:1.2 !important}
+    .checklist-table input[type="checkbox"]{width:14px !important;height:14px !important}
+  }
+  @page{size:A4;margin:10mm}
+
+  /* ============ MOBILE / NARROW: unravel the circle ============ */
+  /* Breakpoint raised to 860px — below this the circle can't guarantee
+     clearance between buttons and panel, so it becomes a tidy stack. */
+  @media (max-width:860px){
+    .ring-wrap{width:auto;height:auto;display:flex;flex-direction:column;align-items:center;gap:14px;padding:0 16px}
+    .ring-btn{position:static;width:100%;max-width:400px;min-height:0}
+    .panel{position:static;transform:none;width:100%;max-width:400px;max-height:none;order:99;margin-top:6px}
+    .modal-box{padding:30px 18px 22px}
+    .modal-text input.blank,.letter-paper input.blank,
+    .modal-text select.blank,.letter-paper select.blank{max-width:68vw}
+    .checklist-table th,.checklist-table td{padding:6px 8px;font-size:.78rem}
+    .checklist-table td:nth-child(2),.checklist-table td:nth-child(3),
+    .checklist-table th:nth-child(2),.checklist-table th:nth-child(3){width:64px}
+  }
+
+  @media (max-width:420px){
+    header{padding:40px 16px 8px}
+    .sub{font-size:.95rem}
+    .logo{top:10px;right:10px;width:clamp(48px,14vw,72px)}
+    .modal-box{padding:26px 14px 18px}
+    .sig-box{min-width:100%}
+  }
+
+  /* ============ WIDE BUT SHORT DESKTOPS (e.g. 1920x1080) ============
+     Trims vertical whitespace so the whole ring fits in view without
+     scrolling on a typical full-HD monitor, without touching layouts
+     that already have height to spare. */
+  @media (min-width:861px) and (max-height:960px){
+    header{padding:30px 20px 4px}
+    h1{font-size:clamp(1.8rem,4vw,2.6rem)}
+    .sub{margin-top:8px}
+    .reset-btn{margin-top:10px}
+    .ring-wrap{--ring-cap:620px;margin:14px auto 26px}
+    footer{padding:0 20px 22px}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .blob,.floaty,.ring-btn.grc,.ring-btn.grc::before,.ring-btn.grc::after{animation:none!important}
+    .ring-btn,.complete-btn,.reset-btn{transition:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="mesh" aria-hidden="true">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="blob b4"></div><div class="blob b5"></div>
+</div>
+
+<div class="floaties" aria-hidden="true">
+  <div class="floaty" style="top:12%;left:4%;--dur:13s;--rot:-8deg"><div class="doc"><div class="stamp"></div></div></div>
+  <div class="floaty" style="top:62%;left:2%;--dur:17s;--rot:6deg"><div class="pen"></div></div>
+  <div class="floaty" style="top:8%;right:5%;--dur:15s;--rot:10deg"><div class="pen gold"></div></div>
+  <div class="floaty" style="top:58%;right:3%;--dur:19s;--rot:-5deg"><div class="doc"><div class="stamp"></div></div></div>
+  <div class="floaty" style="bottom:4%;left:12%;--dur:16s;--rot:12deg"><div class="doc"></div></div>
+  <div class="floaty" style="bottom:6%;right:12%;--dur:14s;--rot:-12deg"><div class="pen"></div></div>
+</div>
+
+<img class="logo" src="logo.png" alt="Trans in Gloucestershire">
+
+<header>
+  <h1>Your Name-Change Journey</h1>
+  <p class="sub">All the UK paperwork in one friendly circle. Tap a form to see what it needs — start with the deed poll, everything else flows from there. ✨</p>
+  <div class="header-actions">
+    <button class="reset-btn" id="resetBtn" type="button">🔄 Reset all fields</button>
+    <button class="reset-btn" id="exportBtn" type="button">💾 Export (.xml)</button>
+    <button class="reset-btn" id="importBtn" type="button">📂 Import (.xml)</button>
+  </div>
+  <form id="importForm" method="post" enctype="multipart/form-data" hidden>
+    <input type="hidden" name="action" value="import">
+    <input type="file" name="importFile" id="importFile" accept=".xml,application/xml,text/xml">
+  </form>
+  <form id="exportForm" method="post" hidden>
+    <input type="hidden" name="action" value="export">
+  </form>
+<?php if($importMessage !== null): ?>
+  <p class="import-msg<?= $importError ? ' error' : '' ?>" role="status"><?= htmlspecialchars($importMessage, ENT_QUOTES, 'UTF-8') ?></p>
+<?php endif; ?>
+</header>
+
+<div class="ring-wrap" id="ring">
+  <div class="panel" id="panel" aria-live="polite">
+    <h2>Pick a document to begin</h2>
+    <p>The deed poll is your key — it unlocks nearly everything else. Work clockwise, filling in the deed poll and DVLA letter as you go. You've got this. 💙🤍💗💛🤍💜🖤</p>
+  </div>
+</div>
+
+<footer>
+  <button class="reset-btn" id="checklistBtn" type="button">🖨️ Print Checklist</button>
+  <p>GPL 3.0 • Use Reset to clear your filled-in details • Always check GOV.UK for the latest requirements and fees, as they do change.</p>
+</footer>
+
+<div class="version-fab no-print">
+  <span class="v-tag">v2.10</span>
+  <a class="gh-link" href="https://github.com/MichelleFindlay/tig-namechange" target="_blank" rel="noopener noreferrer" aria-label="View source on GitHub">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+      0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01
+      1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+      -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82
+      2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+      0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+  </a>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal-box" id="modalBox" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button class="modal-close no-print" id="modalClose" aria-label="Close">✕</button>
+    <h2 id="modalTitle" class="no-print">📜 Your Deed Poll Wording</h2>
+    <div class="modal-text" id="modalText">
+      <p>“I <input type="text" class="blank" data-field="oldName" placeholder="old name" size="14"> of <input type="text" class="blank" data-field="address" placeholder="your address" size="22"> have given up my name <span class="mirror" data-mirror="oldName">[old name]</span> and have adopted for all purposes the name <input type="text" class="blank" data-field="newName" placeholder="new name" size="14">.</p>
+      <p>“Where applicable, I have informed the police that I have given up my name <span class="mirror" data-mirror="oldName">[old name]</span> and have adopted the name <span class="mirror" data-mirror="newName">[new name]</span> and understand that a failure to do so is a criminal offence.</p>
+      <p>“I also understand that when I apply for official documents in my new name, such as a British Passport, the relevant authorities may check the history and validity of my old name <span class="mirror" data-mirror="oldName">[old name]</span> and new name <span class="mirror" data-mirror="newName">[new name]</span>. They may also check the information in any other supporting documents they have requested.</p>
+      <p>“Signed as a deed on <input type="text" class="blank" data-field="date" placeholder="date" size="10"> as <span class="mirror" data-mirror="oldName">[old name]</span> and <span class="mirror" data-mirror="newName">[new name]</span> in the presence of <input type="text" class="blank" data-field="w1Name" placeholder="witness 1 name" size="14"> of <input type="text" class="blank" data-field="w1Address" placeholder="witness 1 address" size="18">, and <input type="text" class="blank" data-field="w2Name" placeholder="witness 2 name" size="14"> of <input type="text" class="blank" data-field="w2Address" placeholder="witness 2 address" size="18">.</p>
+      <div class="sig-row">
+        <div class="sig-box"><span class="sig-cap">New signature</span></div>
+        <div class="sig-box"><span class="sig-cap">Old signature</span></div>
+      </div>
+      <div class="sig-row">
+        <div class="sig-box"><span class="sig-cap">Witness 1 signature</span></div>
+        <div class="sig-box"><span class="sig-cap">Witness 2 signature</span></div>
+      </div>
+    </div>
+    <p class="modal-hint no-print">A helper to get your wording right — print it, then sign it in your old and new names, in person, in front of two independent witnesses aged 18+ who sign too.</p>
+    <div class="modal-actions no-print">
+      <button class="complete-btn" id="modalPrintBtn">🖨️ Print on A4</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="dvlaModalOverlay" hidden>
+  <div class="modal-box" id="dvlaModalBox" role="dialog" aria-modal="true" aria-labelledby="dvlaModalTitle">
+    <button class="modal-close no-print" id="dvlaModalClose" aria-label="Close">✕</button>
+    <h2 id="dvlaModalTitle" class="no-print">✉️ DVLA Gender Marker Letter</h2>
+    <div class="letter-paper" id="dvlaLetterText">
+      <div class="letter-block right">
+        <div><input type="text" class="blank" data-field="dvlaCurrentName" placeholder="Your current name" size="24"></div>
+        <div><input type="text" class="blank" data-field="dvlaAddress" placeholder="Your address" size="24"></div>
+        <div><input type="text" class="blank" data-field="dvlaPostcode" placeholder="Postcode" size="14"></div>
+        <div><input type="text" class="blank" data-field="dvlaDate" placeholder="Date" size="14"></div>
+      </div>
+      <div class="letter-block">
+        <div>Drivers Customer Services</div>
+        <div>DVLA</div>
+        <div>Swansea</div>
+        <div>SA99 1BN</div>
+      </div>
+      <p>Dear Sir or Madam,</p>
+      <p><b>Re: Update to gender marker and personal details — Driving licence number: <input type="text" class="blank" data-field="dvlaDriverNumber" placeholder="your driver number" size="18"></b></p>
+      <p>I am writing to request that my driving licence records be updated to reflect my correct gender and personal details.</p>
+      <p>Please update my records as follows: my gender should be recorded as <select class="blank" data-field="dvlaGender" data-placeholder="male / female">
+        <option value="" disabled selected>choose</option>
+        <option value="male">male</option>
+        <option value="female">female</option>
+      </select>, my title as <select class="blank" data-field="dvlaTitle" data-placeholder="Mr / Ms / Mx / etc.">
+        <option value="" disabled selected>choose a title</option>
+        <option value="none">None</option>
+        <option value="Mr">Mr</option>
+        <option value="Mrs">Mrs</option>
+        <option value="Miss">Miss</option>
+        <option value="Ms">Ms</option>
+        <option value="Mx">Mx</option>
+        <option value="Dr">Dr</option>
+        <option value="Prof">Prof (Professor)</option>
+        <option value="Rev">Rev (Reverend)</option>
+        <option value="Father">Father</option>
+        <option value="Sister">Sister</option>
+        <option value="Rabbi">Rabbi</option>
+        <option value="Imam">Imam</option>
+        <option value="Sir">Sir</option>
+        <option value="Dame">Dame</option>
+        <option value="Lord">Lord</option>
+        <option value="Lady">Lady</option>
+        <option value="Baron / Baroness">Baron / Baroness</option>
+        <option value="Count / Countess">Count / Countess</option>
+      </select>, and my name as <input type="text" class="blank" data-field="dvlaNewNameChange" placeholder="full new name, if changing" size="22">. My date of birth and address remain unchanged.</p>
+      <p>I enclose my completed D1 application form, my current photocard driving licence, a new passport-style photograph, and <select class="blank" data-field="dvlaEnclosure" data-placeholder="a copy of my deed poll / statutory declaration">
+        <option value="" disabled selected>choose a document</option>
+        <option value="a copy of my deed poll / statutory declaration">a copy of my deed poll / statutory declaration</option>
+        <option value="a copy of my gender recognition certificate">a copy of my gender recognition certificate</option>
+      </select> confirming my change of name.</p>
+      <p><b>If you're using a deed poll or statutory declaration:</b> you must also send one document showing your new name. This must be valid and have been issued after your deed poll or statutory declaration (and, if you already hold a GB driving licence, after your most recent licence too). It can be dated within the last 12 months — such as a tax/HMRC letter, an employer's letter, an education record, a letter from a government department or council, a visa or residence permit, a medical or health card, a voter card, a UK bank statement, a baptism or confirmation certificate, a child benefit record, or a utility bill (including mobile, broadband or streaming) — or, without a 12-month limit, a non-GB driving licence, a UK passport number, a non-UK passport, or a national identity card or similar document.</p>
+      <p>I enclose <select class="blank" data-field="dvlaSupportingDoc" data-placeholder="choose the document you're sending">
+        <option value="" disabled selected>choose a document</option>
+        <optgroup label="Issued in the last 12 months">
+          <option value="a letter from HM Revenue and Customs (HMRC)">a a letter from HM Revenue and Customs (HMRC)</option>
+          <option value="an official letter from my employer">an official letter from my employer</option>
+          <option value="an education record">an education record</option>
+          <option value="a letter from a government departmentlocal council">a letter from a government department</option>
+          <option value="a letter from a local council">a letter from a local council</option>
+          <option value="a visa or residence permit">a visa or residence permit</option>
+          <option value="a medical or health card">a medical or health card</option>
+          <option value="a voter card">a voter card</option>
+          <option value="a UK bank statement">a UK bank statement</option>
+          <option value="a baptism or confirmation certificate">a baptism or confirmation certificate</option>
+          <option value="a child benefit record">a child benefit record</option>
+          <option value="a utility bill">a utility bill, including a mobile phone, broadband or streaming subscription bill</option>
+        </optgroup>
+        <optgroup label="Alternatively">
+          <option value="a non-GB driving licence">a non-GB driving licence</option>
+          <option value="a UK passport number">a UK passport number</option>
+          <option value="a non-UK passport">a non-UK passport</option>
+          <option value="a national identity card or similar document">a national identity card or similar document</option>
+        </optgroup>
+      </select> as this supporting document showing my new name.</p>
+      <p>I would be grateful if you could issue an updated licence and driver number reflecting these details. Please contact me at <input type="text" class="blank" data-field="dvlaContact" placeholder="phone number / email" size="20"> if you require anything further.</p>
+      <p>Yours faithfully,</p>
+      <div class="sig-row letter-sig">
+        <div class="sig-box single"><span class="sig-cap">Signature</span></div>
+      </div>
+      <p><input type="text" class="blank" data-field="dvlaNewName" placeholder="New name" size="20"></p>
+    </div>
+    <p class="modal-hint no-print">Fill in the blanks, then print — it's formatted to fit a single A4 sheet.</p>
+    <div class="modal-actions no-print">
+      <button class="complete-btn" id="dvlaPrintBtn">🖨️ Print Letter</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="gpModalOverlay" hidden>
+  <div class="modal-box" id="gpModalBox" role="dialog" aria-modal="true" aria-labelledby="gpModalTitle">
+    <button class="modal-close no-print" id="gpModalClose" aria-label="Close">✕</button>
+    <h2 id="gpModalTitle" class="no-print">🩺 GP Supporting Letter Guide</h2>
+    <div class="letter-paper" id="gpLetterText">
+      <p style="text-align:right">[date]</p>
+      <p><b>PRIVATE &amp; CONFIDENTIAL</b></p>
+      <p><b>TO WHOM IT MAY CONCERN</b></p>
+      <p><b>Re:</b> [patient's full name] &nbsp;DOB: [date of birth]<br>[patient's address]</p>
+      <p>I am writing to confirm the following in support of the above named patient's passport application.:</p>
+      <p><b>Living in Affirmed Gender</b><br>The above named patient has been living in their affirmed gender for a period of at least two years.</p>
+      <p><b>Intention to Continue Living in Affirmed Gender</b><br>The above named patient has expressed a clear and committed intention to live in this gender for the rest of their life.</p>
+      <p>They use their specified name and gender for all purposes in their day-to-day life and within their medical records at this practice.</p>
+      <p>Please do not hesitate to contact me if you require any further information or clarification.</p>
+      <p>Yours faithfully,</p>
+      <div class="sig-row letter-sig">
+        <div class="sig-box single"><span class="sig-cap">GP signature</span></div>
+      </div>
+      <p>[Dr's name]<br>[GP practice name]</p>
+    </div>
+    <p class="modal-hint no-print">A guide, not a legal template — show your GP surgery this wording and ask them to write it up on their letterhead.</p>
+    <div class="modal-actions no-print">
+      <button class="complete-btn" id="gpPrintBtn">🖨️ Print Guide</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="checklistModalOverlay" hidden>
+  <div class="modal-box" id="checklistModalBox" role="dialog" aria-modal="true" aria-labelledby="checklistModalTitle">
+    <button class="modal-close no-print" id="checklistModalClose" aria-label="Close">✕</button>
+    <h2 id="checklistModalTitle" class="no-print">✅ Your Checklist</h2>
+    <div class="checklist-scroll">
+      <table class="checklist-table">
+        <thead>
+          <tr><th>Item</th><th>In progress</th><th>Done</th></tr>
+        </thead>
+        <tbody id="checklistBody"></tbody>
+      </table>
+    </div>
+    <p class="modal-hint no-print">Tick as you go — or print it blank and tick with a pen.</p>
+    <div class="modal-actions no-print">
+      <button class="complete-btn" id="checklistPrintBtn">🖨️ Print Checklist</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const steps = [
+    {
+      emoji:"📜", label:"Deed poll / statutory declaration", cls:"",
+      title:"Deed Poll / Statutory Declaration",
+      html:`<p>Your foundation document — it makes your name change official.</p>
+      <ul>
+        <li>A free <b>unenrolled deed poll</b> is valid: write it up, sign it in your old and new names, with two witnesses.</li>
+        <li>A <b>statutory declaration</b> is sworn before a solicitor (small fee) — some bodies prefer it.</li>
+        <li>Make several certified copies — you'll send it everywhere!</li>
+      </ul>
+      <span class="badge">Do this first</span>`
+    },
+    {
+      emoji:"🛂", label:"Passport", cls:"",
+      title:"Passport (HM Passport Office)",
+      html:`<p>Apply for a new passport in your name and gender marker.</p>
+      <ul>
+        <li>Send your <b>deed poll</b> for the name change.</li>
+        <li>For the <b>gender marker</b>: a letter from your doctor or consultant confirming your change is intended to be permanent. No GRC needed.</li>
+        <li>New photos + standard passport fee apply.</li>
+      </ul>
+      <span class="badge">Needs deed poll + doctor's letter</span>`
+    },
+    {
+      emoji:"🚗", label:"Driving licence (DVLA)", cls:"",
+      title:"Driving Licence (DVLA)",
+      html:`<p>Updating your licence with the DVLA is free.</p>
+      <ul>
+        <li>Complete form <b>D1</b> (or D2 for lorries/buses) from the Post Office or GOV.UK.</li>
+        <li>Include your <b>deed poll</b> and your current licence.</li>
+        <li>You can update your name and title in one go.</li>
+      </ul>
+      <span class="badge">Free to update</span>`
+    },
+    {
+      emoji:"💷", label:"HMRC (tax / National Insurance)", cls:"",
+      title:"HMRC — Tax & National Insurance",
+      html:`<p>Tell HMRC so your tax and NI records match your new details.</p>
+      <ul>
+        <li>Update your name online via your <b>Personal Tax Account</b> or by post with your deed poll.</li>
+        <li>Your <b>NI number stays the same</b> for life.</li>
+        <li>You can also ask HMRC to update your gender on their records.</li>
+      </ul>
+      <span class="badge">NI number never changes</span>`
+    },
+    {
+      emoji:"🩺", label:"NHS / GP records", cls:"",
+      title:"NHS / GP Records",
+      html:`<p>Ask your GP practice to update your details.</p>
+      <ul>
+        <li>Show your <b>deed poll</b> to change your name on your records.</li>
+        <li>You can ask to change your <b>gender marker</b> too — this issues a <b>new NHS number</b> and a fresh record.</li>
+        <li>Chat with your GP about keeping screening invitations relevant to your body.</li>
+      </ul>
+      <span class="badge">New NHS number issued</span>`
+    },
+    {
+      emoji:"🗳️", label:"Electoral roll (council)", cls:"",
+      title:"Electoral Roll (Council)",
+      html:`<p>Update your name on the electoral register.</p>
+      <ul>
+        <li>Simplest route: re-register at <b>gov.uk/register-to-vote</b> with your new details — the form asks whether you've changed your name and lets you give your previous one.</li>
+        <li>Or contact your local council's <b>Electoral Registration Office</b> directly.</li>
+        <li>They may ask to see your <b>deed poll</b>, though practice varies.</li>
+      </ul>
+      <span class="badge">Name only — no gender marker recorded</span>`
+    },
+    {
+      emoji:"🎓", label:"Qualifications & degrees", cls:"",
+      title:"Qualifications & Degrees",
+      html:`<p>Update your name with the awarding body for any certificates you hold.</p>
+      <ul>
+        <li>Contact your <b>university or college's registry/alumni office</b> directly with your deed poll — many will reissue a certificate or provide a name change letter for a fee.</li>
+        <li>Do the same for any <b>professional qualifications</b> (e.g. teaching, nursing, chartered bodies) via their awarding or regulatory body.</li>
+        <li>Keep your old certificate with your deed poll — some checks (e.g. HEDD) verify against the name a qualification was originally awarded under.</li>
+      </ul>
+      <span class="badge">Contact each awarding body separately</span>`
+    },
+    {
+      emoji:"👑", label:"Gender Recognition Certificate", cls:"grc",
+      title:"✨ Gender Recognition Certificate ✨",
+      html:`<p>The bonus level! Legal recognition of your gender.</p>
+      <ul>
+        <li>Apply to the <b>Gender Recognition Panel</b> via GOV.UK — the fee is tiny (a few pounds).</li>
+        <li>Typically needs a gender dysphoria diagnosis, evidence of ~2 years living in your gender, and a statutory declaration.</li>
+        <li>Unlocks an updated <b>birth certificate</b>. Not required for passport, DVLA or NHS changes!</li>
+      </ul>
+      <span class="badge">Shiny but optional 👑</span>`
+    }
+  ];
+
+  const ring = document.getElementById('ring');
+  const panel = document.getElementById('panel');
+  const defaultPanelHTML = panel.innerHTML;
+  let currentIndex = null;
+
+  function renderPanel(i){
+    const s = steps[i];
+    const showButton = i === 0;
+    const showGpButton = i === 1;
+    const showDvlaButton = i === 2;
+    panel.innerHTML = `<h2>${s.title}</h2>${s.html}
+      ${showButton ? `<button class="complete-btn" id="completeBtn">Fill Out Form ✓</button>` : ''}
+      ${showDvlaButton ? `<button class="complete-btn" id="dvlaLetterBtn">✉️ Draft DVLA Letter</button>` : ''}
+      ${showGpButton ? `<button class="complete-btn" id="gpLetterBtn">🩺 GP Letter Guide</button>` : ''}`;
+    if(showButton){
+      document.getElementById('completeBtn').addEventListener('click', openModal);
+    }
+    if(showDvlaButton){
+      document.getElementById('dvlaLetterBtn').addEventListener('click', openDvlaModal);
+    }
+    if(showGpButton){
+      document.getElementById('gpLetterBtn').addEventListener('click', openGpModal);
+    }
+  }
+
+  /* ---- Deed poll fill-in modal ---- */
+  const modalOverlay = document.getElementById('modalOverlay');
+  const modalClose = document.getElementById('modalClose');
+  const modalPrintBtn = document.getElementById('modalPrintBtn');
+  const modalText = document.getElementById('modalText');
+  modalPrintBtn.addEventListener('click', ()=> window.print());
+
+  function openModal(){
+    modalOverlay.hidden = false;
+  }
+  function closeModal(){
+    modalOverlay.hidden = true;
+  }
+  modalClose.addEventListener('click', closeModal);
+  modalOverlay.addEventListener('click', (e)=>{ if(e.target === modalOverlay) closeModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !modalOverlay.hidden) closeModal(); });
+
+  function wireMirror(field){
+    const input = modalText.querySelector(`input[data-field="${field}"]`);
+    const mirrors = modalText.querySelectorAll(`[data-mirror="${field}"]`);
+    const fallback = `[${input.placeholder}]`;
+    const sync = ()=>{
+      const v = input.value.trim();
+      mirrors.forEach(m => m.textContent = v || fallback);
+    };
+    input.addEventListener('input', sync);
+  }
+  ['oldName','newName'].forEach(wireMirror);
+
+  /* ---- DVLA gender-marker letter modal (printable) ---- */
+  const dvlaModalOverlay = document.getElementById('dvlaModalOverlay');
+  const dvlaModalClose = document.getElementById('dvlaModalClose');
+  const dvlaPrintBtn = document.getElementById('dvlaPrintBtn');
+
+  function openDvlaModal(){
+    dvlaModalOverlay.hidden = false;
+  }
+  function closeDvlaModal(){
+    dvlaModalOverlay.hidden = true;
+  }
+  dvlaModalClose.addEventListener('click', closeDvlaModal);
+  dvlaModalOverlay.addEventListener('click', (e)=>{ if(e.target === dvlaModalOverlay) closeDvlaModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !dvlaModalOverlay.hidden) closeDvlaModal(); });
+  dvlaPrintBtn.addEventListener('click', ()=> window.print());
+
+  /* ---- GP supporting letter guide modal (printable) ---- */
+  const gpModalOverlay = document.getElementById('gpModalOverlay');
+  const gpModalClose = document.getElementById('gpModalClose');
+  const gpPrintBtn = document.getElementById('gpPrintBtn');
+
+  function openGpModal(){
+    gpModalOverlay.hidden = false;
+  }
+  function closeGpModal(){
+    gpModalOverlay.hidden = true;
+  }
+  gpModalClose.addEventListener('click', closeGpModal);
+  gpModalOverlay.addEventListener('click', (e)=>{ if(e.target === gpModalOverlay) closeGpModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !gpModalOverlay.hidden) closeGpModal(); });
+  gpPrintBtn.addEventListener('click', ()=> window.print());
+
+  /* ---- printable checklist modal ---- */
+  const checklistModalOverlay = document.getElementById('checklistModalOverlay');
+  const checklistModalClose = document.getElementById('checklistModalClose');
+  const checklistPrintBtn = document.getElementById('checklistPrintBtn');
+  const checklistBody = document.getElementById('checklistBody');
+  const checklistBtn = document.getElementById('checklistBtn');
+
+  steps.forEach((s,i)=>{
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${s.emoji} ${s.label}</td><td><input type="checkbox" class="chk" data-step="${i}" data-col="progress"></td><td><input type="checkbox" class="chk" data-step="${i}" data-col="done"></td>`;
+    checklistBody.appendChild(row);
+  });
+  const starRow = document.createElement('tr');
+  starRow.className = 'star-row';
+  starRow.innerHTML = `<td><span class="checklist-star" id="checklistStar">⭐</span> Everything ticked off</td><td>—</td><td><input type="checkbox" class="chk" id="checklistStarCheck"></td>`;
+  checklistBody.appendChild(starRow);
+  document.getElementById('checklistStarCheck').addEventListener('change', (e)=>{
+    document.getElementById('checklistStar').classList.toggle('lit', e.target.checked);
+  });
+
+  /* confetti burst the moment every box on the checklist is ticked */
+  const confettiColors = ['var(--t-blue)','var(--t-pink)','var(--t-white)','var(--nb-yellow)','var(--nb-purple)'];
+  function fireConfetti(){
+    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for(let i=0;i<90;i++){
+      const piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = Math.random()*100 + 'vw';
+      piece.style.background = confettiColors[Math.floor(Math.random()*confettiColors.length)];
+      piece.style.animationDuration = (2.2 + Math.random()*1.6) + 's';
+      piece.style.animationDelay = (Math.random()*0.4) + 's';
+      piece.style.setProperty('--rot', (Math.random()*720 - 360) + 'deg');
+      piece.style.setProperty('--drift', (Math.random()*160 - 80) + 'px');
+      document.body.appendChild(piece);
+      piece.addEventListener('animationend', ()=> piece.remove());
+    }
+  }
+  let allTicked = false;
+  function checkAllTicked(){
+    const boxes = checklistBody.querySelectorAll('.chk');
+    const nowAllTicked = Array.from(boxes).every(b=> b.checked);
+    if(nowAllTicked && !allTicked) fireConfetti();
+    allTicked = nowAllTicked;
+  }
+  checklistBody.addEventListener('change', (e)=>{
+    if(e.target.classList.contains('chk')) checkAllTicked();
+  });
+
+  function openChecklistModal(){
+    checklistModalOverlay.hidden = false;
+  }
+  function closeChecklistModal(){
+    checklistModalOverlay.hidden = true;
+  }
+  checklistBtn.addEventListener('click', openChecklistModal);
+  checklistModalClose.addEventListener('click', closeChecklistModal);
+  checklistModalOverlay.addEventListener('click', (e)=>{ if(e.target === checklistModalOverlay) closeChecklistModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !checklistModalOverlay.hidden) closeChecklistModal(); });
+  checklistPrintBtn.addEventListener('click', ()=> window.print());
+
+  /* blank inputs grow to fit whatever's typed, so nothing (e.g. a long address) gets cut off */
+  document.querySelectorAll('input.blank').forEach(inp=>{
+    const grow = ()=>{ inp.size = Math.max(inp.value.length || inp.placeholder.length, 4) + 1; };
+    inp.addEventListener('input', grow);
+    grow();
+  });
+
+  /* the state every field is in on first load — also reused by the reset button */
+  function applyDefaultFieldState(){
+    document.querySelectorAll('input.blank').forEach(inp=>{
+      inp.value = '';
+      inp.dispatchEvent(new Event('input'));
+    });
+    document.querySelectorAll('select.blank').forEach(sel=>{ sel.selectedIndex = 0; });
+    const pad2 = n => String(n).padStart(2,'0');
+    const today = new Date();
+    const deedDateInput = modalText.querySelector('input[data-field="date"]');
+    deedDateInput.value = `${pad2(today.getDate())}/${pad2(today.getMonth()+1)}/${today.getFullYear()}`;
+    deedDateInput.dispatchEvent(new Event('input'));
+    document.querySelectorAll('.chk').forEach(chk=> chk.checked = false);
+    document.getElementById('checklistStar').classList.remove('lit');
+    allTicked = false;
+  }
+  applyDefaultFieldState();
+
+  /* ---- XML export / import (handled by PHP at the top of this file) ---- */
+  const importedState = <?= json_encode($imported, $jsonFlags) ?>;
+
+  function applyImportedState(state){
+    Object.entries(state.fields || {}).forEach(([name, value])=>{
+      const el = document.querySelector(`.blank[data-field="${name}"]`);
+      if(!el) return;
+      if(el.tagName === 'SELECT'){
+        /* only pick values the dropdown actually offers */
+        if(Array.from(el.options).some(o=> o.value === value && !o.disabled)) el.value = value;
+      } else {
+        el.value = value;
+        el.dispatchEvent(new Event('input'));
+      }
+    });
+    Object.entries(state.checklist || {}).forEach(([i, item])=>{
+      ['progress','done'].forEach(col=>{
+        const chk = checklistBody.querySelector(`.chk[data-step="${i}"][data-col="${col}"]`);
+        if(chk) chk.checked = !!item[col];
+      });
+    });
+    const starCheck = document.getElementById('checklistStarCheck');
+    starCheck.checked = !!state.allDone;
+    document.getElementById('checklistStar').classList.toggle('lit', starCheck.checked);
+    /* don't fire confetti just for loading an already-finished checklist */
+    allTicked = Array.from(checklistBody.querySelectorAll('.chk')).every(b=> b.checked);
+  }
+  if(importedState) applyImportedState(importedState);
+  /* stop a refresh from re-submitting the upload */
+  if(window.history.replaceState) window.history.replaceState(null, '', window.location.href);
+
+  const exportForm = document.getElementById('exportForm');
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    exportForm.querySelectorAll('input:not([name="action"])').forEach(el=> el.remove());
+    const add = (name, value)=>{
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = name;
+      inp.value = value;
+      exportForm.appendChild(inp);
+    };
+    document.querySelectorAll('.blank[data-field]').forEach(el=> add(`fields[${el.dataset.field}]`, el.value));
+    checklistBody.querySelectorAll('.chk[data-step]').forEach(chk=>{
+      add(`checklist[${chk.dataset.step}][${chk.dataset.col}]`, chk.checked ? '1' : '');
+    });
+    add('allDone', document.getElementById('checklistStarCheck').checked ? '1' : '');
+    exportForm.submit();
+  });
+
+  const importFile = document.getElementById('importFile');
+  document.getElementById('importBtn').addEventListener('click', ()=> importFile.click());
+  importFile.addEventListener('change', ()=>{
+    if(importFile.files.length) document.getElementById('importForm').submit();
+  });
+
+  /* an <input>'s character-based width never matches its text's real width, which
+     shows up as a gap once print strips its border/background — so for print, swap
+     each input/select for plain text sized exactly to what's actually in it */
+  window.addEventListener('beforeprint', ()=>{
+    document.querySelectorAll('input.blank, select.blank').forEach(el=>{
+      const isSelect = el.tagName === 'SELECT';
+      const value = isSelect ? el.value : el.value.trim();
+      const placeholder = isSelect ? el.dataset.placeholder : el.placeholder;
+      const span = document.createElement('span');
+      span.className = 'print-fill';
+      span.textContent = value || `[${placeholder}]`;
+      el.insertAdjacentElement('afterend', span);
+      el.style.display = 'none';
+    });
+  });
+  window.addEventListener('afterprint', ()=>{
+    document.querySelectorAll('.print-fill').forEach(span=> span.remove());
+    document.querySelectorAll('input.blank, select.blank').forEach(el=> el.style.display = '');
+  });
+
+  const buttons = steps.map((s,i)=>{
+    const b = document.createElement('button');
+    b.className = 'ring-btn ' + s.cls;
+    b.innerHTML = `<span class="emoji">${s.emoji}</span>${s.label}`;
+    b.setAttribute('aria-label', s.label);
+    b.addEventListener('click', ()=>{
+      buttons.forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      currentIndex = i;
+      panel.style.opacity = 0;
+      setTimeout(()=>{ renderPanel(i); panel.style.opacity = 1; }, 180);
+    });
+    ring.appendChild(b);
+    return b;
+  });
+
+  /* Radius maths: buttons sit at radius r from centre.
+     Inner edge of a button = r - btnW/2. Panel half-width capped at
+     min(40% of wrap, 330)/2. We pick r as large as the wrap allows,
+     then verify clearance; CSS breakpoint (860px) guarantees the
+     stacked fallback before the geometry gets tight. wrap is read from
+     the rendered element (not recomputed) so it always matches whatever
+     --ring-cap the current CSS breakpoint applied — e.g. the shrunk
+     ring used on wide-but-short (1920x1080-style) viewports. */
+  function layout(){
+    if(window.innerWidth <= 860){
+      buttons.forEach(b=>{b.style.removeProperty('--x');b.style.removeProperty('--y');});
+      return;
+    }
+    const wrap = ring.getBoundingClientRect().width;
+    const btnW = 148, btnH = 100;
+    const r = wrap/2 - Math.max(btnW,btnH)/2 - 12; // keep buttons fully inside wrap
+    buttons.forEach((b,i)=>{
+      const a = (i/steps.length)*Math.PI*2 - Math.PI/2; // start at top
+      b.style.setProperty('--x', (Math.cos(a)*r)+'px');
+      b.style.setProperty('--y', (Math.sin(a)*r)+'px');
+    });
+  }
+  layout();
+  window.addEventListener('resize', layout);
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    closeModal();
+    closeDvlaModal();
+    closeGpModal();
+    closeChecklistModal();
+    applyDefaultFieldState();
+    buttons.forEach(b=> b.classList.remove('active'));
+    currentIndex = null;
+    panel.innerHTML = defaultPanelHTML;
+  });
+</script>
+</body>
+</html>
